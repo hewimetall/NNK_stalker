@@ -52,4 +52,11 @@ mod tests {
         assert_ne!(UserId::new(), UserId::new());
         assert_ne!(RoomId::new(), RoomId::new());
     }
+
+    #[test]
+    fn default_ids() {
+        let _ = UserId::default();
+        let _ = RoomId::default();
+        assert_ne!(UserId::default().0, uuid::Uuid::nil());
+    }
 }

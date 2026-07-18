@@ -248,15 +248,26 @@ mod tests {
         let db = SqliteStore::connect_memory().await.unwrap();
         let gm = UserId::new();
         db.create_user(gm, "gm1", "h").await.unwrap();
+        let by_id = db.find_by_id(gm).await.unwrap().unwrap();
+        assert_eq!(by_id.username, "gm1");
+        assert!(db.find_by_id(UserId::new()).await.unwrap().is_none());
+
         let room = RoomId::new();
         db.create_room(room, "ABCD12", gm, "gm1").await.unwrap();
+        assert_eq!(db.find_id_by_code("ABCD12").await.unwrap().unwrap(), room);
+        assert!(db.find_id_by_code("ZZZZZZ").await.unwrap().is_none());
+
         let player = UserId::new();
         db.create_user(player, "p1", "h").await.unwrap();
         db.add_member(room, player, MemberRole::Player, "p1")
             .await
             .unwrap();
+        let m = db.get_member(room, player).await.unwrap().unwrap();
+        assert_eq!(m.role, MemberRole::Player);
         let m = db.get_member_by_code("ABCD12", player).await.unwrap().unwrap();
         assert_eq!(m.1.role, MemberRole::Player);
+        let gm_m = db.get_member_by_code("ABCD12", gm).await.unwrap().unwrap();
+        assert_eq!(gm_m.1.role, MemberRole::Gm);
 
         let state = RoomState::new(room, "ABCD12".into(), PlayerToken::new(gm, "gm1"), 1);
         db.save_snapshot("ABCD12", &state).await.unwrap();

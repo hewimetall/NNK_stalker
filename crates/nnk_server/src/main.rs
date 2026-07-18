@@ -9,8 +9,10 @@ use nnk_auth::{Argon2PasswordService, JwtTokenService};
 use nnk_persistence::SqliteStore;
 use state::AppState;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
@@ -27,6 +29,7 @@ async fn main() -> anyhow::Result<()> {
         "dev-only-change-me".into()
     });
     let bind = std::env::var("NNK_BIND").unwrap_or_else(|_| "0.0.0.0:8080".into());
+    let static_dir = std::env::var("NNK_STATIC_DIR").unwrap_or_else(|_| "web".into());
 
     let store = Arc::new(SqliteStore::connect(&database_url).await?);
     let auth = Arc::new(AuthService::new(
@@ -37,25 +40,35 @@ async fn main() -> anyhow::Result<()> {
     let rooms = Arc::new(RoomService::new(store));
     let state = AppState::new(auth, rooms);
 
-    let app = Router::new()
+    let index = PathBuf::from(&static_dir).join("index.html");
+    let static_files = ServeDir::new(&static_dir).not_found_service(ServeFile::new(index));
+
+    let api = Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/api/auth/register", post(http::register))
         .route("/api/auth/login", post(http::login))
         .route("/api/me", get(http::me))
         .route("/api/rooms", post(http::create_room))
+        .route("/api/rooms/{code}", get(http::get_lobby))
         .route("/api/rooms/{code}/join", post(http::join_room))
+        .route("/api/rooms/{code}/ready", post(http::set_ready))
+        .route("/api/rooms/{code}/start", post(http::start_game))
         .route("/ws/rooms/{code}", get(ws::ws_handler))
+        .with_state(state);
+
+    let app = Router::new()
+        .merge(api)
+        .fallback_service(static_files)
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
                 .allow_methods(Any)
                 .allow_headers(Any),
         )
-        .layer(TraceLayer::new_for_http())
-        .with_state(state);
+        .layer(TraceLayer::new_for_http());
 
     let addr: SocketAddr = bind.parse()?;
-    tracing::info!("nnk_server listening on http://{addr}");
+    tracing::info!("nnk_server listening on http://{addr} (lobby UI from {static_dir}/)");
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())

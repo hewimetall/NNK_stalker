@@ -6,6 +6,7 @@ use crate::{HexCoord, LocationId, UserId};
 pub struct PlayerToken {
     pub user_id: UserId,
     pub display_name: String,
+    pub ready: bool,
     pub location: Option<LocationId>,
     pub sector: Option<u8>,
     pub hex: HexCoord,
@@ -17,6 +18,7 @@ impl PlayerToken {
         Self {
             user_id,
             display_name: display_name.into(),
+            ready: false,
             location: None,
             sector: None,
             hex: HexCoord::ZERO,

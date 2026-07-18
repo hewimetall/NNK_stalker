@@ -1,26 +1,233 @@
 <!DOCTYPE html>
 <html lang="ru">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>NNK Stalker</title>
-    <style>
-      html, body {
-        margin: 0;
-        height: 100%;
-        background: #12160f;
-        color: #e8e0c8;
-        font-family: "Segoe UI", sans-serif;
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NNK Stalker — Лобби</title>
+  <style>
+    :root {
+      --bg0: #12160f;
+      --bg1: #1c2418;
+      --ink: #e8e0c8;
+      --muted: #9a9178;
+      --accent: #c4a35a;
+      --ok: #6f8f4e;
+      --danger: #a65d3b;
+      --line: rgba(232, 224, 200, 0.14);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; color: var(--ink);
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(ellipse at 20% 0%, rgba(111,143,78,.18), transparent 45%),
+        radial-gradient(ellipse at 90% 20%, rgba(166,93,59,.12), transparent 40%),
+        linear-gradient(160deg, var(--bg0), var(--bg1) 60%, #0e120c);
+    }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 28px 18px 48px; }
+    h1 { font-family: "IBM Plex Serif", Georgia, serif; font-weight: 600; letter-spacing: .02em; margin: 0 0 6px; font-size: clamp(1.8rem, 4vw, 2.4rem); }
+    .sub { color: var(--muted); margin: 0 0 22px; }
+    .panel {
+      border: 1px solid var(--line); background: rgba(18,22,15,.72);
+      backdrop-filter: blur(6px); padding: 18px; margin-bottom: 14px;
+    }
+    label { display: block; font-size: .85rem; color: var(--muted); margin: 10px 0 4px; }
+    input {
+      width: 100%; padding: 10px 12px; border: 1px solid var(--line);
+      background: #0f130e; color: var(--ink); font: inherit;
+    }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+    button {
+      border: 1px solid var(--accent); background: transparent; color: var(--ink);
+      padding: 10px 14px; font: inherit; cursor: pointer;
+    }
+    button.primary { background: var(--accent); color: #1a160c; border-color: var(--accent); }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .err { color: #e0a090; min-height: 1.2em; margin-top: 10px; white-space: pre-wrap; }
+    .seat {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 0; border-bottom: 1px solid var(--line);
+    }
+    .seat:last-child { border-bottom: 0; }
+    .badge {
+      font-size: .75rem; letter-spacing: .04em; text-transform: uppercase;
+      padding: 3px 8px; border: 1px solid var(--line); color: var(--muted);
+    }
+    .badge.ready { color: var(--ok); border-color: var(--ok); }
+    .badge.gm { color: var(--accent); border-color: var(--accent); }
+    .meta { color: var(--muted); font-size: .9rem; margin-bottom: 10px; }
+    .hidden { display: none; }
+    code { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>NNK Stalker</h1>
+    <p class="sub">Лобби на 4–5 игроков · обязательная авторизация · код комнаты для друзей</p>
+
+    <section id="authPanel" class="panel">
+      <strong>Вход</strong>
+      <label>Логин</label>
+      <input id="username" autocomplete="username" placeholder="stalker1" />
+      <label>Пароль (мин. 8)</label>
+      <input id="password" type="password" autocomplete="current-password" placeholder="zonezone1" />
+      <div class="row">
+        <button class="primary" id="btnRegister">Регистрация</button>
+        <button id="btnLogin">Войти</button>
+      </div>
+      <div class="err" id="authErr"></div>
+    </section>
+
+    <section id="lobbyPanel" class="panel hidden">
+      <div class="meta">Вы: <strong id="who"></strong></div>
+      <div class="row">
+        <button class="primary" id="btnCreate">Создать лобби</button>
+      </div>
+      <label>Код комнаты</label>
+      <input id="roomCode" placeholder="ABCD12" maxlength="6" />
+      <div class="row">
+        <button id="btnJoin">Войти в лобби</button>
+        <button id="btnReady">Готов</button>
+        <button id="btnUnready">Не готов</button>
+        <button id="btnStart" disabled>Старт (ГМ, 4–5 ready)</button>
+      </div>
+      <div class="err" id="lobbyErr"></div>
+      <div id="lobbyMeta" class="meta" style="margin-top:14px"></div>
+      <div id="seats"></div>
+    </section>
+  </div>
+
+  <script>
+    const state = { token: localStorage.getItem('nnk_token') || '', user: null, code: '', ws: null, lobby: null };
+
+    const $ = (id) => document.getElementById(id);
+    const authErr = $('authErr');
+    const lobbyErr = $('lobbyErr');
+
+    async function api(path, opts = {}) {
+      const headers = { 'content-type': 'application/json', ...(opts.headers || {}) };
+      if (state.token) headers.Authorization = `Bearer ${state.token}`;
+      const res = await fetch(path, { ...opts, headers });
+      const text = await res.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch { data = { error: text }; }
+      if (!res.ok) throw new Error((data && data.error) || res.statusText);
+      return data;
+    }
+
+    function showAuthed() {
+      $('authPanel').classList.add('hidden');
+      $('lobbyPanel').classList.remove('hidden');
+      $('who').textContent = state.user?.username || '?';
+    }
+
+    function renderLobby(lobby) {
+      state.lobby = lobby;
+      state.code = lobby.code;
+      $('roomCode').value = lobby.code;
+      const readyCount = lobby.players.filter(p => p.ready).length;
+      $('lobbyMeta').innerHTML =
+        `Комната <code>${lobby.code}</code> · фаза <strong>${lobby.phase}</strong> · ` +
+        `${lobby.player_count}/${lobby.max_players} (старт от ${lobby.min_players}) · ready ${readyCount}/${lobby.player_count}`;
+      $('seats').innerHTML = lobby.players.map(p => `
+        <div class="seat">
+          <div>
+            <strong>${escapeHtml(p.display_name)}</strong>
+            ${p.is_gm ? '<span class="badge gm">ГМ</span>' : ''}
+          </div>
+          <span class="badge ${p.ready ? 'ready' : ''}">${p.ready ? 'ready' : 'waiting'}</span>
+        </div>`).join('');
+      $('btnStart').disabled = !(lobby.can_start);
+      if (lobby.phase === 'playing') {
+        lobbyErr.textContent = 'Игра стартовала. Можно открыть Bevy-клиент / ждать миссии.';
       }
-      #nnk-canvas {
-        width: 100vw;
-        height: 100vh;
-        display: block;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    function connectWs(code) {
+      if (state.ws) { try { state.ws.close(); } catch {} }
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const url = `${proto}://${location.host}/ws/rooms/${code}?token=${encodeURIComponent(state.token)}`;
+      const ws = new WebSocket(url);
+      state.ws = ws;
+      ws.onmessage = (ev) => {
+        let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+        if (msg.type === 'lobby') renderLobby(msg);
+        if (msg.type === 'error') lobbyErr.textContent = msg.message || 'ws error';
+      };
+      ws.onerror = () => { lobbyErr.textContent = 'WebSocket error'; };
+    }
+
+    async function auth(kind) {
+      authErr.textContent = '';
+      try {
+        const body = { username: $('username').value.trim(), password: $('password').value };
+        const data = await api(`/api/auth/${kind}`, { method: 'POST', body: JSON.stringify(body) });
+        state.token = data.access_token;
+        localStorage.setItem('nnk_token', state.token);
+        state.user = { user_id: data.user_id, username: data.username };
+        showAuthed();
+      } catch (e) { authErr.textContent = e.message; }
+    }
+
+    $('btnRegister').onclick = () => auth('register');
+    $('btnLogin').onclick = () => auth('login');
+
+    $('btnCreate').onclick = async () => {
+      lobbyErr.textContent = '';
+      try {
+        const created = await api('/api/rooms', { method: 'POST', body: '{}' });
+        const lobby = await api(`/api/rooms/${created.code}/join`, { method: 'POST', body: '{}' });
+        renderLobby(lobby);
+        connectWs(created.code);
+      } catch (e) { lobbyErr.textContent = e.message; }
+    };
+
+    $('btnJoin').onclick = async () => {
+      lobbyErr.textContent = '';
+      try {
+        const code = $('roomCode').value.trim().toUpperCase();
+        const lobby = await api(`/api/rooms/${code}/join`, { method: 'POST', body: '{}' });
+        renderLobby(lobby);
+        connectWs(code);
+      } catch (e) { lobbyErr.textContent = e.message; }
+    };
+
+    async function setReady(ready) {
+      lobbyErr.textContent = '';
+      try {
+        const code = $('roomCode').value.trim().toUpperCase();
+        const lobby = await api(`/api/rooms/${code}/ready`, {
+          method: 'POST', body: JSON.stringify({ ready })
+        });
+        renderLobby(lobby);
+      } catch (e) { lobbyErr.textContent = e.message; }
+    }
+    $('btnReady').onclick = () => setReady(true);
+    $('btnUnready').onclick = () => setReady(false);
+
+    $('btnStart').onclick = async () => {
+      lobbyErr.textContent = '';
+      try {
+        const code = $('roomCode').value.trim().toUpperCase();
+        const lobby = await api(`/api/rooms/${code}/start`, { method: 'POST', body: '{}' });
+        renderLobby(lobby);
+      } catch (e) { lobbyErr.textContent = e.message; }
+    };
+
+    (async () => {
+      if (!state.token) return;
+      try {
+        state.user = await api('/api/me');
+        showAuthed();
+      } catch {
+        localStorage.removeItem('nnk_token');
+        state.token = '';
       }
-    </style>
-  </head>
-  <body>
-    <canvas id="nnk-canvas"></canvas>
-    <link data-trunk rel="rust" data-bin="nnk_client" href="../crates/nnk_client" />
-  </body>
+    })();
+  </script>
+</body>
 </html>

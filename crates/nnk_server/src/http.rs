@@ -5,9 +5,11 @@ use axum::http::StatusCode;
 use axum::Json;
 use nnk_app::AppError;
 use nnk_auth::AuthError;
-use nnk_domain::UserId;
+use nnk_domain::{MemberRole, UserId};
 use nnk_ports::PortError;
-use nnk_protocol::AuthRequest;
+use nnk_protocol::{AuthRequest, LobbyView, ServerMsg};
+use nnk_rules::Action;
+use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -59,12 +61,35 @@ fn map_app(e: AppError) -> (StatusCode, Json<serde_json::Value>) {
         AppError::Port(PortError::NotFound) | AppError::Message("room not found") => {
             err(StatusCode::NOT_FOUND, "not found")
         }
+        AppError::Domain(nnk_domain::DomainError::LobbyFull { max }) => err(
+            StatusCode::CONFLICT,
+            &format!("lobby full (max {max} players)"),
+        ),
+        AppError::Domain(nnk_domain::DomainError::LobbyNotReady) => {
+            err(StatusCode::CONFLICT, "not all players are ready")
+        }
+        AppError::Domain(nnk_domain::DomainError::LobbySize { min, max, have }) => err(
+            StatusCode::CONFLICT,
+            &format!("need {min}..={max} players, have {have}"),
+        ),
+        AppError::Domain(nnk_domain::DomainError::AlreadyPlaying) => {
+            err(StatusCode::CONFLICT, "game already started")
+        }
+        AppError::Domain(nnk_domain::DomainError::StillInLobby) => {
+            err(StatusCode::CONFLICT, "still in lobby")
+        }
+        AppError::Domain(other) => err(StatusCode::BAD_REQUEST, &other.to_string()),
         AppError::Message(m) => err(StatusCode::BAD_REQUEST, m),
         other => {
             tracing::error!(error = %other, "app error");
             err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")
         }
     }
+}
+
+async fn broadcast_lobby(live: &LiveRoom, state: &nnk_domain::RoomState) {
+    let _ = live.tx.send(ServerMsg::Lobby(LobbyView::from_state(state)));
+    let _ = live.tx.send(ServerMsg::RoomState(state.clone()));
 }
 
 pub async fn register(
@@ -112,23 +137,100 @@ pub async fn join_room(
     State(state): State<AppState>,
     user: AuthUser,
     Path(code): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Json<LobbyView>, (StatusCode, Json<serde_json::Value>)> {
     let code = code.to_uppercase();
-    let live = state.live.get(&code).map(|r| r.clone());
-    let current = match &live {
-        Some(l) => Some(l.state.read().await.clone()),
-        None => None,
-    };
+    let live = state.live.get(&code).map(|r| r.clone()).ok_or_else(|| {
+        err(
+            StatusCode::NOT_FOUND,
+            "room not in memory — create a new lobby",
+        )
+    })?;
+    let current = live.state.read().await.clone();
     let new_state = state
         .rooms
-        .join(&code, user.user_id, &user.username, current)
+        .join(&code, user.user_id, &user.username, Some(current))
         .await
         .map_err(map_app)?;
-    if let Some(live) = live {
-        *live.state.write().await = new_state.clone();
-        let _ = live
-            .tx
-            .send(nnk_protocol::ServerMsg::RoomState(new_state));
+    *live.state.write().await = new_state.clone();
+    broadcast_lobby(&live, &new_state).await;
+    Ok(Json(LobbyView::from_state(&new_state)))
+}
+
+pub async fn get_lobby(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(code): Path<String>,
+) -> Result<Json<LobbyView>, (StatusCode, Json<serde_json::Value>)> {
+    let code = code.to_uppercase();
+    let _role = state
+        .rooms
+        .member_role(&code, user.user_id)
+        .await
+        .map_err(map_app)?;
+    let live = state
+        .live
+        .get(&code)
+        .ok_or_else(|| err(StatusCode::NOT_FOUND, "room not in memory"))?;
+    let rs = live.state.read().await.clone();
+    Ok(Json(LobbyView::from_state(&rs)))
+}
+
+#[derive(Deserialize)]
+pub struct ReadyBody {
+    pub ready: bool,
+}
+
+pub async fn set_ready(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(code): Path<String>,
+    Json(body): Json<ReadyBody>,
+) -> Result<Json<LobbyView>, (StatusCode, Json<serde_json::Value>)> {
+    apply_lobby_action(
+        &state,
+        user,
+        &code,
+        Action::SetReady { ready: body.ready },
+    )
+    .await
+}
+
+pub async fn start_game(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(code): Path<String>,
+) -> Result<Json<LobbyView>, (StatusCode, Json<serde_json::Value>)> {
+    apply_lobby_action(&state, user, &code, Action::StartGame).await
+}
+
+async fn apply_lobby_action(
+    state: &AppState,
+    user: AuthUser,
+    code: &str,
+    action: Action,
+) -> Result<Json<LobbyView>, (StatusCode, Json<serde_json::Value>)> {
+    let code = code.to_uppercase();
+    let role = state
+        .rooms
+        .member_role(&code, user.user_id)
+        .await
+        .map_err(map_app)?;
+    // StartGame must be GM — rules also enforce; REST doubles check for clearer errors.
+    if matches!(action, Action::StartGame) && role != MemberRole::Gm {
+        return Err(err(StatusCode::FORBIDDEN, "only GM can start the game"));
     }
-    Ok(Json(json!({ "ok": true, "code": code })))
+    let live = state
+        .live
+        .get(&code)
+        .ok_or_else(|| err(StatusCode::NOT_FOUND, "room not in memory"))?
+        .clone();
+    let current = live.state.read().await.clone();
+    let out = state
+        .rooms
+        .apply(current, user.user_id, role, action)
+        .map_err(map_app)?;
+    *live.state.write().await = out.state.clone();
+    let _ = state.rooms.persist_snapshot(&code, &out.state).await;
+    broadcast_lobby(&live, &out.state).await;
+    Ok(Json(LobbyView::from_state(&out.state)))
 }

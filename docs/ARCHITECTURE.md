@@ -41,9 +41,20 @@ Browser Bevy WASM          Axum (must-auth)
 
 ## Must-auth
 
-- Public: `GET /health`, `POST /api/auth/register`, `POST /api/auth/login`
+- Public: `GET /health`, `POST /api/auth/register`, `POST /api/auth/login`, static lobby UI
 - Everything else: `Authorization: Bearer <jwt>`
 - WS: `/ws/rooms/{code}?token=<jwt>` + prior REST join
+
+## Lobby (4–5 players)
+
+| Rule | Value |
+|------|-------|
+| `LOBBY_MIN_PLAYERS` | 4 |
+| `LOBBY_MAX_PLAYERS` | 5 |
+| Phase | `Lobby` → (all ready + GM `StartGame`) → `Playing` |
+| REST | `POST /api/rooms`, `.../join`, `.../ready`, `.../start`, `GET /api/rooms/{code}` |
+
+Gameplay actions rejected while `phase == Lobby`. 6th join → `409 LobbyFull`.
 
 ---
 

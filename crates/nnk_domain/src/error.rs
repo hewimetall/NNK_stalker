@@ -12,4 +12,14 @@ pub enum DomainError {
     InvalidDice(u8),
     #[error("invalid CCC combination")]
     InvalidCcc,
+    #[error("lobby full (max {max} players)")]
+    LobbyFull { max: u8 },
+    #[error("need {min}..={max} players to start, have {have}")]
+    LobbySize { min: u8, max: u8, have: u8 },
+    #[error("not all players are ready")]
+    LobbyNotReady,
+    #[error("game already started")]
+    AlreadyPlaying,
+    #[error("still in lobby")]
+    StillInLobby,
 }

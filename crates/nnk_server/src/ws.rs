@@ -6,7 +6,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 use futures_util::{SinkExt, StreamExt};
 use nnk_domain::MemberRole;
-use nnk_protocol::{ClientMsg, ServerMsg};
+use nnk_protocol::{ClientMsg, LobbyView, ServerMsg};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -59,7 +59,9 @@ async fn handle_socket(
     let mut rx = live.tx.subscribe();
 
     let welcome = ServerMsg::Welcome { user_id, role };
-    let snapshot = ServerMsg::RoomState(live.state.read().await.clone());
+    let room = live.state.read().await.clone();
+    let lobby = ServerMsg::Lobby(LobbyView::from_state(&room));
+    let snapshot = ServerMsg::RoomState(room);
     if sink
         .send(Message::Text(
             serde_json::to_string(&welcome).unwrap().into(),
@@ -69,6 +71,9 @@ async fn handle_socket(
     {
         return;
     }
+    let _ = sink
+        .send(Message::Text(serde_json::to_string(&lobby).unwrap().into()))
+        .await;
     let _ = sink
         .send(Message::Text(
             serde_json::to_string(&snapshot).unwrap().into(),
@@ -101,6 +106,9 @@ async fn handle_socket(
             Ok(out) => {
                 *live.state.write().await = out.state.clone();
                 let _ = rooms.persist_snapshot(&code, &out.state).await;
+                let _ = live
+                    .tx
+                    .send(ServerMsg::Lobby(LobbyView::from_state(&out.state)));
                 let _ = live.tx.send(ServerMsg::RoomState(out.state));
             }
             Err(e) => {

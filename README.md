@@ -26,6 +26,18 @@
 | `nnk_server` | Thin Axum host |
 | `nnk_client` | Bevy UI + Recraft assets |
 
+## Lobby (4–5 players) + must-auth
+
+- Регистрация / логин (JWT) обязательны для лобби и WS
+- Комната: **мин. 4**, **макс. 5** игроков (включая ГМ)
+- Игроки жмут **Ready** → ГМ жмёт **Старт**
+- Веб-UI: `/` (served by `nnk_server`)
+
+```bash
+./scripts/deploy.sh            # release server on :8080 + lobby UI
+./scripts/smoke-lobby.sh       # 5 auth users → full lobby → start
+```
+
 ## Quick start
 
 ```bash
@@ -35,7 +47,8 @@ export NNK_DATABASE_URL='sqlite:nnk.db?mode=rwc'
 cargo test --workspace --exclude nnk_client
 ./scripts/coverage.sh          # TDD gate ≥93%
 
-cargo run -p nnk_server
+./scripts/deploy.sh
+# open http://127.0.0.1:8080/
 cargo run -p nnk_client        # hex shell + generated art
 ```
 
