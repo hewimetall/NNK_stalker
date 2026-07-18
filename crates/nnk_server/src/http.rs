@@ -49,15 +49,27 @@ fn err(status: StatusCode, message: &str) -> (StatusCode, Json<serde_json::Value
 fn map_app(e: AppError) -> (StatusCode, Json<serde_json::Value>) {
     match e {
         AppError::Auth(AuthError::InvalidCredentials) => {
-            err(StatusCode::UNAUTHORIZED, "invalid username or password")
+            err(StatusCode::UNAUTHORIZED, "неверный логин или пароль")
         }
         AppError::Auth(AuthError::WeakPassword) => {
-            err(StatusCode::BAD_REQUEST, "password must be at least 8 chars")
+            err(
+                StatusCode::BAD_REQUEST,
+                "пароль слишком короткий (минимум 8 символов)",
+            )
         }
-        AppError::Auth(AuthError::InvalidUsername) => {
-            err(StatusCode::BAD_REQUEST, "invalid or taken username")
+        AppError::Auth(AuthError::InvalidUsername) => err(
+            StatusCode::BAD_REQUEST,
+            "логин: 3–32 символа, буквы/цифры/_/- (можно кириллицу)",
+        ),
+        AppError::Auth(AuthError::UsernameTaken) => {
+            err(StatusCode::CONFLICT, "такой логин уже занят — войдите или выберите другой")
         }
-        AppError::Auth(AuthError::InvalidToken) => err(StatusCode::UNAUTHORIZED, "invalid token"),
+        AppError::Auth(AuthError::InvalidToken) => {
+            err(StatusCode::UNAUTHORIZED, "сессия истекла — войдите снова")
+        }
+        AppError::Auth(AuthError::Internal) => {
+            err(StatusCode::INTERNAL_SERVER_ERROR, "ошибка авторизации")
+        }
         AppError::Port(PortError::NotFound) | AppError::Message("room not found") => {
             err(StatusCode::NOT_FOUND, "not found")
         }

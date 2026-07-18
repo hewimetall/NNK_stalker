@@ -3,6 +3,7 @@ mod state;
 mod ws;
 
 use axum::Router;
+use axum::http::{HeaderValue, header};
 use axum::routing::{get, post};
 use nnk_app::{AuthService, RoomService};
 use nnk_auth::{Argon2PasswordService, JwtTokenService};
@@ -13,6 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
+use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
@@ -59,6 +61,10 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .merge(api)
         .fallback_service(static_files)
+        .layer(SetResponseHeaderLayer::overriding(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store, max-age=0"),
+        ))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)

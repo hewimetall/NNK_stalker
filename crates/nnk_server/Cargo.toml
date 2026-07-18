@@ -20,7 +20,7 @@ nnk_app = { workspace = true }
 
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.8", features = ["ws", "macros"] }
-tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "fs", "set-header"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = "0.1"

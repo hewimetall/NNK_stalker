@@ -38,7 +38,7 @@ where
             .create_user(id, &username, &hash)
             .await
             .map_err(|e| match e {
-                nnk_ports::PortError::Conflict(_) => AppError::Auth(AuthError::InvalidUsername),
+                nnk_ports::PortError::Conflict(_) => AppError::Auth(AuthError::UsernameTaken),
                 other => AppError::Port(other),
             })?;
         let access_token = self.tokens.issue(id, &username)?;
@@ -51,8 +51,11 @@ where
     }
 
     pub async fn login(&self, req: AuthRequest) -> Result<AuthResponse, AppError> {
+        // Format checks first (clear errors); then credentials.
         validate_username(&req.username)?;
-        validate_password(&req.password)?;
+        if req.password.is_empty() {
+            return Err(AppError::Auth(AuthError::InvalidCredentials));
+        }
         let user = self
             .users
             .find_by_username(req.username.trim())
@@ -106,6 +109,26 @@ mod tests {
         let login = s
             .login(AuthRequest {
                 username: "STALKER1".into(),
+                password: "zonezone1".into(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(login.user_id, reg.user_id);
+    }
+
+    #[tokio::test]
+    async fn cyrillic_register_login() {
+        let s = svc().await;
+        let reg = s
+            .register(AuthRequest {
+                username: "Сталкер".into(),
+                password: "zonezone1".into(),
+            })
+            .await
+            .unwrap();
+        let login = s
+            .login(AuthRequest {
+                username: "Сталкер".into(),
                 password: "zonezone1".into(),
             })
             .await
