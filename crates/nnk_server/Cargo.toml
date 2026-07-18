@@ -1,0 +1,31 @@
+[package]
+name = "nnk_server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Thin Axum composition root (must-auth HTTP + WS)"
+
+[[bin]]
+name = "nnk_server"
+path = "src/main.rs"
+
+[dependencies]
+nnk_domain = { workspace = true }
+nnk_rules = { workspace = true }
+nnk_protocol = { workspace = true }
+nnk_auth = { workspace = true }
+nnk_ports = { workspace = true }
+nnk_persistence = { workspace = true }
+nnk_app = { workspace = true }
+
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.8", features = ["ws", "macros"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = { workspace = true }
+futures-util = "0.3"
+dashmap = "6"
+uuid = { workspace = true }

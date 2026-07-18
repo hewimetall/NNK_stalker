@@ -1,0 +1,17 @@
+[package]
+name = "nnk_auth"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Password hashing + JWT (DIP: traits + impls)"
+
+[dependencies]
+nnk_domain = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+argon2 = "0.5"
+password-hash = "0.5"
+jsonwebtoken = "9"
+rand = { workspace = true }

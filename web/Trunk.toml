@@ -1,0 +1,10 @@
+[build]
+target = "index.html"
+dist = "dist"
+
+[watch]
+watch = ["../crates/nnk_client", "../crates/nnk_domain", "../crates/nnk_protocol", "index.html"]
+
+[serve]
+address = "127.0.0.1"
+port = 8081

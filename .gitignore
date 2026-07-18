@@ -1,0 +1,15 @@
+/target
+**/*.rs.bk
+nnk.db
+nnk.db-*
+.env
+.DS_Store
+web/dist
+vendor/
+.idea/
+.vscode/
+*.wasm
+coverage/
+lcov.info
+*.profraw
+*.profdata

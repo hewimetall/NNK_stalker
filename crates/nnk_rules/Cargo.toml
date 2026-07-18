@@ -1,0 +1,13 @@
+[package]
+name = "nnk_rules"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Pure game engine (init/step/legal) — no IO, TDD core"
+
+[dependencies]
+nnk_domain = { workspace = true }
+serde = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+thiserror = { workspace = true }

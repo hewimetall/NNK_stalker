@@ -1,0 +1,58 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/nnk_domain",
+    "crates/nnk_rules",
+    "crates/nnk_protocol",
+    "crates/nnk_auth",
+    "crates/nnk_ports",
+    "crates/nnk_persistence",
+    "crates/nnk_app",
+    "crates/nnk_server",
+    "crates/nnk_client",
+]
+default-members = [
+    "crates/nnk_domain",
+    "crates/nnk_rules",
+    "crates/nnk_protocol",
+    "crates/nnk_auth",
+    "crates/nnk_ports",
+    "crates/nnk_persistence",
+    "crates/nnk_app",
+    "crates/nnk_server",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/hewimetall/NNK_stalker"
+
+[workspace.dependencies]
+nnk_domain = { path = "crates/nnk_domain" }
+nnk_rules = { path = "crates/nnk_rules" }
+nnk_protocol = { path = "crates/nnk_protocol" }
+nnk_auth = { path = "crates/nnk_auth" }
+nnk_ports = { path = "crates/nnk_ports" }
+nnk_persistence = { path = "crates/nnk_persistence" }
+nnk_app = { path = "crates/nnk_app" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde", "clock"] }
+rand = "0.8"
+rand_chacha = "0.3"
+async-trait = "0.1"
+anyhow = "1"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
