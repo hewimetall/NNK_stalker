@@ -57,8 +57,211 @@ pub fn spawn(root: &mut ChildBuilder, session: &ClientSession, assets: &UiAssets
     ))
     .with_children(|layout| {
         spawn_tablet(layout, session, lobby, assets);
+        spawn_hex_board(layout, session, lobby, assets);
         spawn_roster(layout, lobby, assets);
     });
+}
+
+/// Interactive 19-hex sector board (Пилигрим / term.md: сектор = 19 гексов).
+fn spawn_hex_board(
+    parent: &mut ChildBuilder,
+    session: &ClientSession,
+    lobby: &LobbyView,
+    assets: &UiAssets,
+) {
+    let me = me_player(session, lobby);
+    let legal: std::collections::HashSet<(i32, i32)> = parse_move_actions(&lobby.legal_actions)
+        .into_iter()
+        .collect();
+    let my_turn = is_my_turn(session, lobby);
+    let busy = session.is_busy();
+
+    let board_w = 420.0;
+    let board_h = 400.0;
+    let size = 26.0;
+    let cx = board_w / 2.0;
+    let cy = board_h / 2.0 + 8.0;
+    let cell_w = size * 1.85;
+    let cell_h = size * 2.05;
+
+    parent
+        .spawn((
+            Node {
+                width: Val::Px(board_w),
+                min_width: Val::Px(320.0),
+                height: Val::Px(board_h + 36.0),
+                flex_direction: FlexDirection::Column,
+                padding: UiRect::all(Val::Px(10.0)),
+                border: UiRect::all(Val::Px(1.0)),
+                row_gap: Val::Px(6.0),
+                ..default()
+            },
+            BackgroundColor(palette::panel()),
+            BorderColor(Color::srgba(0.77, 0.64, 0.35, 0.42)),
+        ))
+        .with_children(|panel| {
+            let loc = me
+                .and_then(|p| p.location.as_deref())
+                .unwrap_or("Кордон");
+            let sector = me
+                .and_then(|p| p.sector)
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "-".into());
+            panel.spawn(text_node(
+                format!("Поле сектора · {loc} · сектор {sector}"),
+                16.0,
+                palette::accent(),
+                assets,
+            ));
+            panel.spawn(text_node(
+                "зелёный = ход · янтарь = ты · красный = жетон события · цель = яркая рамка",
+                12.0,
+                palette::muted(),
+                assets,
+            ));
+
+            panel
+                .spawn(Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Px(board_h - 8.0),
+                    position_type: PositionType::Relative,
+                    ..default()
+                })
+                .with_children(|board| {
+                    for (i, hex) in nnk_domain::sector_hexes().into_iter().enumerate() {
+                        let q = hex.q;
+                        let r = hex.r;
+                        let x = size
+                            * (3.0_f32.sqrt() * q as f32 + 3.0_f32.sqrt() / 2.0 * r as f32)
+                            + cx;
+                        // UI Y grows downward — flip axial Y for screen.
+                        let y = -(size * (3.0 / 2.0 * r as f32)) + cy;
+
+                        let is_me = me.map(|p| p.hex.q == q && p.hex.r == r).unwrap_or(false);
+                        let is_target = me
+                            .and_then(|p| p.target_hex)
+                            .map(|t| t.q == q && t.r == r)
+                            .unwrap_or(false);
+                        let is_event = lobby
+                            .event_tokens
+                            .iter()
+                            .any(|t| !t.resolved && t.hex.q == q && t.hex.r == r);
+                        let is_legal = legal.contains(&(q, r));
+                        let occupied = lobby
+                            .players
+                            .iter()
+                            .filter(|p| p.hex.q == q && p.hex.r == r)
+                            .map(|p| p.display_name.as_str())
+                            .collect::<Vec<_>>();
+
+                        let (bg, border, label) = hex_style(
+                            i + 1,
+                            is_me,
+                            is_target,
+                            is_event,
+                            is_legal,
+                            !occupied.is_empty(),
+                        );
+
+                        let left = (x - cell_w / 2.0).max(0.0);
+                        let top = (y - cell_h / 2.0).max(0.0);
+
+                        let node = Node {
+                            position_type: PositionType::Absolute,
+                            left: Val::Px(left),
+                            top: Val::Px(top),
+                            width: Val::Px(cell_w),
+                            height: Val::Px(cell_h),
+                            align_items: AlignItems::Center,
+                            justify_content: JustifyContent::Center,
+                            border: UiRect::all(Val::Px(if is_target || is_legal {
+                                2.0
+                            } else {
+                                1.0
+                            })),
+                            ..default()
+                        };
+
+                        if is_legal && my_turn && !busy {
+                            board
+                                .spawn((
+                                    Button,
+                                    node,
+                                    BackgroundColor(bg),
+                                    BorderColor(border),
+                                    UiAction::MoveToken { q, r },
+                                    crate::ui::UiEnabled(true),
+                                    crate::ui::UiPrimary(true),
+                                ))
+                                .with_children(|btn| {
+                                    btn.spawn(text_node(
+                                        label,
+                                        11.0,
+                                        palette::text_on_primary(),
+                                        assets,
+                                    ));
+                                });
+                        } else {
+                            board
+                                .spawn((node, BackgroundColor(bg), BorderColor(border)))
+                                .with_children(|cell| {
+                                    cell.spawn(text_node(label, 11.0, palette::text(), assets));
+                                });
+                        }
+                    }
+                });
+        });
+}
+
+fn hex_style(
+    index: usize,
+    is_me: bool,
+    is_target: bool,
+    is_event: bool,
+    is_legal: bool,
+    occupied: bool,
+) -> (Color, Color, String) {
+    let label = if occupied {
+        "●".into()
+    } else if is_event {
+        format!("!{index}")
+    } else {
+        index.to_string()
+    };
+
+    if is_legal {
+        return (
+            Color::srgba(0.22, 0.42, 0.18, 0.95),
+            Color::srgb(0.55, 0.85, 0.35),
+            label,
+        );
+    }
+    if is_me {
+        return (
+            Color::srgba(0.55, 0.42, 0.16, 0.95),
+            palette::accent(),
+            label,
+        );
+    }
+    if is_target {
+        return (
+            Color::srgba(0.35, 0.28, 0.12, 0.95),
+            Color::srgb(0.95, 0.82, 0.35),
+            label,
+        );
+    }
+    if is_event {
+        return (
+            Color::srgba(0.42, 0.14, 0.10, 0.92),
+            Color::srgb(0.85, 0.35, 0.25),
+            label,
+        );
+    }
+    (
+        Color::srgba(0.10, 0.12, 0.08, 0.92),
+        Color::srgba(0.91, 0.88, 0.78, 0.22),
+        label,
+    )
 }
 
 fn spawn_tablet(
