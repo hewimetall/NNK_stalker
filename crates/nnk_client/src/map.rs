@@ -21,15 +21,14 @@ fn axial_to_world(hex: HexCoord) -> Vec2 {
     Vec2::new(x, y)
 }
 
-fn setup_map(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup_map(mut commands: Commands) {
     commands.spawn(Camera2d);
 
-    // Soft atmosphere (Recraft-generated)
+    // Soft atmosphere placeholder; P2 will replace this with the full board art.
     commands.spawn((
         Sprite {
-            image: asset_server.load("generated/zone_atmosphere.png"),
             custom_size: Some(Vec2::new(1600.0, 900.0)),
-            color: Color::srgba(1.0, 1.0, 1.0, 0.35),
+            color: Color::srgba(0.07, 0.10, 0.05, 0.70),
             ..default()
         },
         Transform::from_xyz(0.0, 0.0, -10.0),
@@ -63,8 +62,8 @@ fn setup_map(mut commands: Commands, asset_server: Res<AssetServer>) {
 
     commands.spawn((
         Sprite {
-            image: asset_server.load("generated/stalker_token.png"),
             custom_size: Some(Vec2::splat(36.0)),
+            color: Color::srgb(0.77, 0.64, 0.35),
             ..default()
         },
         Transform::from_xyz(0.0, 0.0, 1.0),
