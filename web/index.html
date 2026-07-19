@@ -11,7 +11,8 @@
   <style>
     :root {
       --bg0: #12160f; --bg1: #1c2418; --ink: #e8e0c8; --muted: #9a9178;
-      --accent: #c4a35a; --ok: #6f8f4e; --danger: #c4785a;
+      --accent: #c4a35a; --ok: #6f8f4e; --danger: #c4785a; --target: #d7b04f;
+      --path: rgba(196, 163, 90, .32);
       --line: rgba(232, 224, 200, 0.14);
     }
     * { box-sizing: border-box; }
@@ -93,6 +94,38 @@
       background: rgba(0,0,0,.18);
       color: var(--muted);
     }
+    .tablet {
+      margin: 12px 0 14px;
+      border: 1px solid rgba(196,163,90,.36);
+      background:
+        linear-gradient(135deg, rgba(196,163,90,.10), rgba(0,0,0,.10)),
+        rgba(12,15,10,.56);
+    }
+    .tablet-head {
+      display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+      padding-bottom: 10px; border-bottom: 1px solid var(--line);
+    }
+    .tablet-title { font-family: "IBM Plex Serif", Georgia, serif; font-size: 1.16rem; }
+    .tablet-grid {
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
+      margin-top: 12px;
+    }
+    @media (min-width: 760px) {
+      .tablet-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
+    .tablet-field {
+      min-height: 58px; padding: 8px 10px; border: 1px solid var(--line);
+      background: rgba(0,0,0,.18);
+    }
+    .tablet-field span {
+      display: block; color: var(--muted); font-size: .72rem; text-transform: uppercase;
+      letter-spacing: .05em; margin-bottom: 3px;
+    }
+    .tablet-field strong { font-size: .98rem; }
+    .briefing {
+      margin-top: 10px; color: var(--muted); line-height: 1.35;
+      border-top: 1px solid var(--line); padding-top: 10px;
+    }
     @keyframes coachIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
     .play-grid {
       display: grid; grid-template-columns: 1fr; gap: 14px;
@@ -107,6 +140,26 @@
         linear-gradient(180deg, rgba(10,12,8,.28), rgba(10,12,8,.45)),
         url("/assets/location_field_cordon.webp") center/cover;
     }
+    .board-caption {
+      position: absolute; inset: 0; pointer-events: none; z-index: 1;
+      display: flex; align-items: flex-start; justify-content: center;
+      padding: 18px;
+      background: linear-gradient(180deg, rgba(0,0,0,.42), transparent 34%);
+      text-align: center;
+    }
+    .board-caption strong {
+      display: block;
+      font-family: "IBM Plex Serif", Georgia, serif;
+      font-size: clamp(1.65rem, 6vw, 3.2rem);
+      line-height: 1;
+      text-shadow: 0 3px 16px rgba(0,0,0,.92);
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .board-caption span {
+      display: block; margin-top: 6px; color: var(--muted);
+      text-shadow: 0 2px 8px rgba(0,0,0,.9);
+    }
     .hex {
       position: absolute; width: 52px; height: 60px;
       clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
@@ -114,10 +167,33 @@
       display: flex; align-items: center; justify-content: center; cursor: default;
       transform: translate(-50%, -50%);
       transition: background .15s, transform .15s;
+      z-index: 2;
     }
+    .hex.path-hint { background: var(--path); box-shadow: inset 0 0 0 1px rgba(196,163,90,.55); }
     .hex.reachable { background: rgba(111,143,78,.72); outline: 2px solid var(--accent); cursor: pointer; }
     .hex.reachable:hover { transform: translate(-50%, -50%) scale(1.06); }
-    .hex.has-token { box-shadow: inset 0 0 0 2px var(--accent); }
+    .hex.current { box-shadow: inset 0 0 0 3px var(--accent), 0 0 18px rgba(196,163,90,.36); }
+    .hex.target {
+      background: rgba(196,120,90,.70);
+      outline: 3px solid var(--target);
+      box-shadow: 0 0 22px rgba(215,176,79,.46);
+    }
+    .hex.current.target {
+      background: rgba(215,176,79,.78);
+      box-shadow: inset 0 0 0 3px var(--accent), 0 0 24px rgba(215,176,79,.58);
+    }
+    .hex.target::after {
+      content: "ЦЕЛЬ";
+      position: absolute; bottom: -16px; left: 50%; transform: translateX(-50%);
+      font-size: .58rem; color: var(--target); text-shadow: 0 1px 4px #000;
+      letter-spacing: .06em; font-weight: 600;
+    }
+    .hex.has-token:not(.current) { box-shadow: inset 0 0 0 2px var(--accent); }
+    .npc-dot {
+      position: absolute; width: 16px; height: 16px; right: 8px; bottom: 8px;
+      border-radius: 50%; border: 1px solid var(--ink); background: var(--danger);
+      box-shadow: 0 1px 6px rgba(0,0,0,.8);
+    }
     .pawn {
       width: 70%; height: 70%; object-fit: contain; pointer-events: none;
       filter: drop-shadow(0 2px 3px rgba(0,0,0,.65));
@@ -192,6 +268,27 @@
         <span>Партия <code id="playCode"></code> · миссия <strong id="playMission"></strong></span>
         <button type="button" class="ghost" id="btnRefreshPlay">Обновить</button>
       </div>
+      <section class="tablet" id="playerTablet" aria-label="Планшет игрока">
+        <div class="tablet-head">
+          <div>
+            <div class="tablet-title">Планшет игрока</div>
+            <div class="hint">Позывной: <strong id="tabletCallsign">—</strong></div>
+          </div>
+          <div class="hint">Миссия: <strong id="tabletMission">—</strong></div>
+          <div class="hint">День/час Зоны: <strong id="tabletClock">—</strong></div>
+        </div>
+        <div class="tablet-grid">
+          <div class="tablet-field"><span>Локация</span><strong id="tabletLocation">—</strong></div>
+          <div class="tablet-field"><span>Сектор</span><strong id="tabletSector">—</strong></div>
+          <div class="tablet-field"><span>ККК</span><strong id="tabletCcc">—</strong></div>
+          <div class="tablet-field"><span>Текущий гекс</span><strong id="tabletHex">—</strong></div>
+          <div class="tablet-field"><span>ЦЕЛЬ гекс</span><strong id="tabletTargetHex">—</strong></div>
+          <div class="tablet-field"><span>ОД</span><strong id="tabletMovePoints">—</strong></div>
+          <div class="tablet-field"><span>Стадия хода</span><strong id="tabletStage">—</strong></div>
+          <div class="tablet-field"><span>Ходит</span><strong id="tabletActive">—</strong></div>
+        </div>
+        <div class="briefing" id="tabletBriefing">—</div>
+      </section>
       <div class="coach" id="playCoach">Ждите старта…</div>
       <div class="result-banner hidden" id="resultBanner"></div>
       <div class="play-grid">
@@ -226,6 +323,12 @@
       [0,-2],[1,-2],[2,-2],[-1,-1],[0,-1],[1,-1],[2,-1],
       [-2,0],[-1,0],[0,0],[1,0],[2,0],[-2,1],[-1,1],[0,1],[1,1],
       [-2,2],[-1,2],[0,2]
+    ];
+    const LOCATION_NAMES = [
+      'Кордон', 'Свалка', 'Болота', 'НИИ Агропром', 'Подземелье Агропрома',
+      'Темная долина', 'Лаборатория Х-18', 'Бар (Завод Росток)', 'Дикая территория',
+      'Янтарь', 'Лаб. Х-16', 'Военные склады', 'Радар', 'Припять',
+      'Затон', 'Юпитер', 'Восточная Припять', 'ЧАЭС'
     ];
     const state = {
       token: localStorage.getItem('nnk_token') || '',
@@ -290,10 +393,64 @@
     function sectorHasHex(hex) {
       return !!hex && SECTOR.some(([q, r]) => hex.q === q && hex.r === r);
     }
+    function coordKey(hex) {
+      return hex ? `${Number(hex.q)},${Number(hex.r)}` : '';
+    }
+    function coordLabel(hex) {
+      if (!hex) return '—';
+      return `#${hexNumberByCoord(hex.q, hex.r)} (${hex.q},${hex.r})`;
+    }
+    function sameCoord(a, b) {
+      return !!a && !!b && Number(a.q) === Number(b.q) && Number(a.r) === Number(b.r);
+    }
+    function shortText(text, max = 260) {
+      const clean = String(text || '—').replace(/\s+/g, ' ').trim();
+      return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
+    }
+    function cccLabel(player) {
+      if (!player) return '—';
+      const tens = player.ccc_tens;
+      const units = player.ccc_units;
+      if (tens == null && units == null && player.sector == null) return '—';
+      return `${tens ?? '—'} / ${units ?? '—'} → ${player.sector ?? '—'}`;
+    }
+    function missionLabel(lobby) {
+      const title = lobby.mission_title || `Миссия ${lobby.mission_id}`;
+      return `${title}: ${lobby.mission_objective || 'цель уточняется'}`;
+    }
+    function locationCaption(lobby, me) {
+      const direct = me && me.location;
+      if (direct) return direct;
+      const active = activePlayer(lobby);
+      if (active && active.location) return active.location;
+      return LOCATION_NAMES[0];
+    }
     function invisibleTokenWarning(lobby) {
       return (lobby.players || []).some(p => p.hex && !sectorHasHex(p.hex))
         ? 'Фишка вне видимого сектора — баг/ход вне поля'
         : '';
+    }
+    function legalMoveCoords(lobby) {
+      return (lobby.legal_actions || [])
+        .map(action => String(action).match(/^move_token:(-?\d+),(-?\d+)$/))
+        .filter(Boolean)
+        .map(m => ({ q: Number(m[1]), r: Number(m[2]) }));
+    }
+    function pathHintKeys(from, target) {
+      const keys = new Set();
+      if (!from || !target || sameCoord(from, target)) return keys;
+      let current = { q: Number(from.q), r: Number(from.r) };
+      for (let guard = 0; guard < 12 && !sameCoord(current, target); guard += 1) {
+        const currentDist = axialDist(current, target);
+        const next = SECTOR
+          .map(([q, r]) => ({ q, r }))
+          .filter(hex => axialDist(current, hex) === 1 && axialDist(hex, target) < currentDist)
+          .sort((a, b) => axialDist(a, target) - axialDist(b, target))[0];
+        if (!next) break;
+        keys.add(coordKey(next));
+        current = next;
+      }
+      return keys;
     }
     function lastCoordLabel(line) {
       const raw = String(line);
@@ -322,6 +479,8 @@
       m = raw.match(/^game_started:(\d+)/);
       if (m) return `Игра началась: игроков ${m[1]}`;
 
+      m = raw.match(/^mission_started:(\d+):(.+)$/);
+      if (m) return `Миссия выбрана: ${m[1]} · ${m[2]}`;
       m = raw.match(/^mission_started:(\d+)/);
       if (m) return `Миссия выбрана: ${m[1]}`;
 
@@ -336,7 +495,7 @@
       }
 
       m = raw.match(/^ccc:(\d+):(\d+):(\d+):([0-9a-f-]{32,36})$/i);
-      if (m) return `${playerNameById(lobby, m[4])}: ККК ${m[1]}+${m[2]} → сектор ${m[3]}`;
+      if (m) return `${playerNameById(lobby, m[4])}: ККК десятки ${m[1]}, единицы ${m[2]} → сектор ${m[3]}`;
 
       m = raw.match(/^d20_hex:(\d+):([0-9a-f-]{32,36}):(-?\d+),(-?\d+)$/i);
       if (m) return `${playerNameById(lobby, m[2])}: D20 гекс ${m[1]} → #${hexNumberByCoord(m[3], m[4])} (${m[3]},${m[4]})`;
@@ -350,10 +509,31 @@
         return coord ? `${playerNameById(lobby, m[1])}: перешёл на ${coord}` : `${playerNameById(lobby, m[1])}: сделал ход`;
       }
 
+      m = raw.match(/^arrived:([0-9a-f-]{32,36}):(.+)$/i);
+      if (m) {
+        const coord = lastCoordLabel(raw);
+        return `${playerNameById(lobby, m[1])}: прибыл в целевой гекс${coord ? ` ${coord}` : ''}; часы Зоны сдвинулись`;
+      }
+
+      m = raw.match(/^npc_spawned:([^:]+):(.+)$/i);
+      if (m) return `НПС появился: ${m[1]} (${npcKindLabel(m[2])})`;
+
+      m = raw.match(/^spawn_npc:([^:]+):(.+)$/i);
+      if (m) return `НПС появился: ${m[1]} (${npcKindLabel(m[2])})`;
+
+      m = raw.match(/^clock:(\d+):(\d+)$/i);
+      if (m) return `Часы Зоны: день ${m[1]}, ${String(m[2]).padStart(2, '0')}:00`;
+
       m = raw.match(/^chat:([0-9a-f-]{32,36}):(.*)$/i);
       if (m) return `${playerNameById(lobby, m[1])}: ${m[2]}`;
 
       return raw;
+    }
+    function npcKindLabel(kind) {
+      const normalized = String(kind || '').toLowerCase();
+      if (normalized.includes('mutant')) return 'мутант';
+      if (normalized.includes('stalker')) return 'сталкер';
+      return kind;
     }
     function resultBannerText(lobby) {
       const history = (lobby.history || []).slice().reverse();
@@ -417,6 +597,7 @@
     }
     function currentStage(lobby, me) {
       if (me && me.travel_stage) return me.travel_stage;
+      if (!me) return 'need_location';
       if (!me.location) return 'need_location';
       if (me.sector == null) return 'need_sector';
       if (!historyHas(lobby, 'd20_hex:', me.user_id)) return 'need_hex';
@@ -429,7 +610,7 @@
         need_sector: 'нужен сектор',
         need_hex: 'нужен гекс',
         need_d6: 'нужен D6',
-        need_move: 'движение',
+        need_move: 'иди к цели',
       })[stage] || 'ход';
     }
     function coachText(lobby) {
@@ -446,22 +627,26 @@
         : '';
       const stage = currentStage(lobby, me);
       if (stage === 'need_location') {
-        return `${turnPrefix}Шаг 1/4 · Нажми большую кнопку «1 · D20 локация» — узнаем, куда идём по Зоне.`;
+        return `${turnPrefix}Шаг 1/5 · Нажми большую кнопку «1 · D20 локация» — планшет получит локацию Зоны.`;
       }
       if (stage === 'need_sector') {
-        return `${turnPrefix}Шаг 2/4 · Локация: ${me.location}. Нажми «2 · ККК сектор» — тянем карту координат.`;
+        return `${turnPrefix}Шаг 2/5 · Локация: ${me.location}. Нажми «2 · ККК сектор» — тянем десятки и единицы координатной карты.`;
       }
       if (stage === 'need_hex') {
-        return `${turnPrefix}Шаг 3/4 · Сектор ${me.sector}. Нажми «3 · D20 гекс» — выбираем клетку внутри сектора (1–19).`;
+        return `${turnPrefix}Шаг 3/5 · Сектор ${me.sector}. Нажми «3 · D20 гекс» — это твоя ЦЕЛЬ внутри сектора (1–19).`;
       }
       if (stage === 'need_d6') {
-        return `${turnPrefix}Шаг 4/4 · Нажми «4 · D6 ход» — узнаем, сколько гексов можешь пройти.`;
+        const target = coordLabel(me.target_hex);
+        return `${turnPrefix}Шаг 4/5 · ЦЕЛЬ: ${target}. Нажми «4 · D6 ход» — D6 даст ОД, сколько гексов можно пройти К ЦЕЛИ за этот рывок.`;
       }
       if (stage === 'need_move') {
+        const target = coordLabel(me.target_hex);
+        const current = coordLabel(me.hex);
+        const distance = me.target_hex ? axialDist(me.hex, me.target_hex) : 0;
         if ((lobby.legal_actions || []).some(a => a.startsWith('move_token:'))) {
-          return `${turnPrefix}Шаг 4/4 · У тебя ${me.move_points} ОД. Кликни подсвеченный зелёный гекс на карте.`;
+          return `${turnPrefix}Шаг 5/5 · Иди К ЦЕЛИ: ${target}. Ты сейчас на ${current}, дистанция ${distance}, ОД ${me.move_points}.\nКликни зелёный гекс по жёлтой подсказке пути; правила не дадут уйти дальше от цели.`;
         }
-        return `${turnPrefix}Движение недоступно: ОД ${me.move_points}. Нажми «Обновить», если зелёных гексов нет.`;
+        return `${turnPrefix}ЦЕЛЬ: ${target}. Движение сейчас недоступно: ОД ${me.move_points}. Если кнопка D6 пропала и зелёных гексов нет — нажми «Обновить».`;
       }
       return `${turnPrefix}Ты на (${me.hex.q},${me.hex.r}) · ${me.location} · сектор ${me.sector}. Заверши ход движением или обнови состояние.`;
     }
@@ -489,14 +674,20 @@
     function renderHexBoard(lobby) {
       const board = $('hexBoard');
       board.innerHTML = '';
+      const me = mePlayer(lobby);
+      const caption = document.createElement('div');
+      caption.className = 'board-caption';
+      caption.innerHTML = `<div><strong>${escapeHtml(locationCaption(lobby, me))}</strong><span>поле сектора · фон Кордона · 18 локаций Зоны</span></div>`;
+      board.appendChild(caption);
       const w = board.clientWidth || 400;
       const h = board.clientHeight || 360;
       const size = Math.min(w, h) / 12;
       const cx = w / 2, cy = h / 2;
-      const me = mePlayer(lobby);
-      const mp = me ? me.move_points : 0;
       const from = me ? me.hex : { q: 0, r: 0 };
-      const canMove = (lobby.legal_actions || []).some(a => a.startsWith('move_token:'));
+      const target = me ? me.target_hex : null;
+      const legalMoves = legalMoveCoords(lobby);
+      const legalMoveKeys = new Set(legalMoves.map(coordKey));
+      const hintKeys = pathHintKeys(from, target);
 
       SECTOR.forEach(([q, r], i) => {
         const x = size * (Math.sqrt(3) * q + Math.sqrt(3) / 2 * r) + cx;
@@ -510,6 +701,11 @@
         el.style.height = (size * 2.1) + 'px';
         el.textContent = String(i + 1);
         const occupied = lobby.players.filter(p => p.hex && p.hex.q === q && p.hex.r === r);
+        const npcs = (lobby.npcs || []).filter(n => n.hex && n.hex.q === q && n.hex.r === r);
+        const here = { q, r };
+        if (hintKeys.has(coordKey(here))) el.classList.add('path-hint');
+        if (sameCoord(from, here)) el.classList.add('current');
+        if (sameCoord(target, here)) el.classList.add('target');
         if (occupied.length) {
           el.classList.add('has-token');
           el.title = occupied.map(p => p.display_name).join(', ');
@@ -520,8 +716,14 @@
           img.alt = occupied[0].display_name;
           el.appendChild(img);
         }
-        const dist = axialDist(from, { q, r });
-        if (canMove && mp > 0 && dist > 0 && dist <= mp) {
+        if (npcs.length) {
+          const dot = document.createElement('span');
+          dot.className = 'npc-dot';
+          dot.title = npcs.map(n => `${n.name} (${npcKindLabel(n.kind)})`).join(', ');
+          el.appendChild(dot);
+          el.title = [el.title, dot.title].filter(Boolean).join(' · ');
+        }
+        if (legalMoveKeys.has(coordKey(here))) {
           el.classList.add('reachable');
           el.onclick = () => doAction({ type: 'move_token', to: { q, r } });
         }
@@ -541,8 +743,23 @@
       };
       const order = ['roll_d20_location', 'draw_ccc', 'roll_d20_hex', 'roll_d6_move'];
       const acts = lobby.legal_actions || [];
+      const appendNpcButtons = () => {
+        if (lobby.phase !== 'playing' || !acts.includes('spawn_npc')) return;
+        for (const npc of [
+          { kind: 'stalker', name: 'Сталкер', label: 'НПС: сталкер' },
+          { kind: 'mutant', name: 'Мутант', label: 'НПС: мутант' },
+        ]) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'ghost';
+          b.textContent = npc.label;
+          b.onclick = () => doAction({ type: 'spawn_npc', name: npc.name, kind: npc.kind });
+          row.appendChild(b);
+        }
+      };
       if (lobby.phase === 'playing' && !isMyTurn(lobby)) {
         row.innerHTML = `<div class="wait-note">Сейчас ходит <strong>${escapeHtml(activeName(lobby))}</strong> — жди. Когда будет твой ход, здесь появится одна большая кнопка.</div>`;
+        appendNpcButtons();
         return;
       }
       const playActs = order.filter(a => acts.includes(a));
@@ -558,8 +775,25 @@
         const hasMove = acts.some(a => a.startsWith('move_token:'));
         row.innerHTML = `<div class="wait-note">${hasMove ? 'Кликни подсвеченный зелёный гекс на карте — это и есть кнопка движения.' : `Сейчас ходит ${escapeHtml(activeName(lobby))}. Если это ты и кнопок нет — нажми «Обновить».`}</div>`;
       }
+      appendNpcButtons();
       // TODO: Show a small GM-only mission control (mission id 1..10) when mission content exists.
       // For now start_mission is intentionally hidden to avoid exposing the placeholder "Миссия 1".
+    }
+
+    function renderTablet(lobby) {
+      const me = mePlayer(lobby);
+      $('tabletCallsign').textContent = me ? me.display_name : '—';
+      $('tabletMission').textContent = missionLabel(lobby);
+      $('tabletClock').textContent = `день ${lobby.game_day ?? 1}, ${String(lobby.game_hour ?? 0).padStart(2, '0')}:00`;
+      $('tabletLocation').textContent = (me && me.location) || '—';
+      $('tabletSector').textContent = me && me.sector != null ? String(me.sector) : '—';
+      $('tabletCcc').textContent = cccLabel(me);
+      $('tabletHex').textContent = me ? coordLabel(me.hex) : '—';
+      $('tabletTargetHex').textContent = me ? coordLabel(me.target_hex) : '—';
+      $('tabletMovePoints').textContent = me ? String(me.move_points) : '—';
+      $('tabletStage').textContent = me ? stageLabel(currentStage(lobby, me)) : '—';
+      $('tabletActive').textContent = lobby.active_display_name || activeName(lobby);
+      $('tabletBriefing').textContent = shortText(lobby.mission_briefing);
     }
 
     function renderLobby(lobby) {
@@ -585,7 +819,8 @@
 
       if (playing) {
         $('playCode').textContent = lobby.code;
-        $('playMission').textContent = `${lobby.mission_id} · ходит ${activeName(lobby)}`;
+        $('playMission').textContent = `${lobby.mission_title || lobby.mission_id} · ходит ${activeName(lobby)}`;
+        renderTablet(lobby);
         $('playCoach').textContent = [coachText(lobby), invisibleTokenWarning(lobby)].filter(Boolean).join('\n');
         const banner = resultBannerText(lobby);
         $('resultBanner').textContent = banner;
@@ -594,16 +829,26 @@
         if (me && me.sector != null) {
           $('cccCaption').textContent = `ККК → сектор ${me.sector}` + (me.location ? ` · ${me.location}` : '');
         }
-        $('tokens').innerHTML = lobby.players.map(p => `
+        const playerRows = lobby.players.map(p => `
           <div class="tok">
             <img src="/assets/stalker_token.webp" alt="" />
             <div style="flex:1">
               <strong>${escapeHtml(p.display_name)}</strong>
               ${p.is_gm ? '<span class="badge gm">ГМ</span>' : ''}
               ${sameUserId(p.user_id, lobby.active_user_id) ? '<span class="badge ready">ходит</span>' : ''}
-              <div class="hint">${p.location || '—'} · сектор ${p.sector ?? '—'} · гекс (${p.hex.q},${p.hex.r})${sectorHasHex(p.hex) ? '' : ' · вне видимого сектора'} · ОД ${p.move_points} · ${stageLabel(p.travel_stage)}</div>
+              <div class="hint">${p.location || '—'} · сектор ${p.sector ?? '—'} · ККК ${cccLabel(p)} · гекс ${coordLabel(p.hex)}${sectorHasHex(p.hex) ? '' : ' · вне видимого сектора'} · ЦЕЛЬ ${coordLabel(p.target_hex)} · ОД ${p.move_points} · ${stageLabel(p.travel_stage)}</div>
             </div>
           </div>`).join('');
+        const npcRows = (lobby.npcs || []).map(n => `
+          <div class="tok">
+            <img src="/assets/stalker_pawn.webp" alt="" />
+            <div style="flex:1">
+              <strong>${escapeHtml(n.name)}</strong>
+              <span class="badge">${escapeHtml(npcKindLabel(n.kind))}</span>
+              <div class="hint">НПС · гекс ${coordLabel(n.hex)}</div>
+            </div>
+          </div>`).join('');
+        $('tokens').innerHTML = playerRows + npcRows;
         $('playLog').innerHTML = (lobby.history || []).slice().reverse().map(h => `<div>${escapeHtml(formatHistoryLine(h, lobby))}</div>`).join('');
         renderActions(lobby);
         requestAnimationFrame(() => renderHexBoard(lobby));

@@ -1,6 +1,6 @@
 use nnk_domain::{
-    CccDeck, DomainError, HexCoord, LocationId, MemberRole, MissionDef, Npc, PlayerToken, RoomId,
-    RoomPhase, RoomState, TurnStage, UserId,
+    CccDeck, DomainError, HexCoord, LocationId, MemberRole, MissionDef, Npc, NpcKind, PlayerToken,
+    RoomId, RoomPhase, RoomState, TurnStage, UserId,
 };
 
 use crate::{Action, GameRng};
@@ -88,6 +88,12 @@ pub fn legal_actions(state: &RoomState, user_id: UserId, role: MemberRole) -> Ve
                 }
                 actions.push(Action::Chat {
                     text: String::new(),
+                });
+            }
+            if role == MemberRole::Gm {
+                actions.push(Action::SpawnNpc {
+                    name: "NPC".into(),
+                    kind: NpcKind::Stalker,
                 });
             }
         }
@@ -798,6 +804,11 @@ mod tests {
         let s = fill_lobby_ready(s, gm);
         let acts = legal_actions(&s, gm, MemberRole::Gm);
         assert!(acts.iter().any(|a| matches!(a, Action::StartGame)));
+        let s = step(s, gm, MemberRole::Gm, Action::StartGame)
+            .unwrap()
+            .state;
+        let acts = legal_actions(&s, gm, MemberRole::Gm);
+        assert!(acts.iter().any(|a| matches!(a, Action::SpawnNpc { .. })));
     }
 
     #[test]
