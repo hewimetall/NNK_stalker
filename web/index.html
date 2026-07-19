@@ -19,11 +19,10 @@
       margin: 0; min-height: 100vh; color: var(--ink);
       font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
       background:
-        radial-gradient(ellipse at 20% 0%, rgba(111,143,78,.18), transparent 45%),
-        radial-gradient(ellipse at 90% 20%, rgba(166,93,59,.12), transparent 40%),
-        linear-gradient(160deg, var(--bg0), var(--bg1) 60%, #0e120c);
+        linear-gradient(180deg, rgba(12,14,10,.72), rgba(12,14,10,.88)),
+        url("/assets/zone_atmosphere.webp") center/cover fixed;
     }
-    .wrap { max-width: 920px; margin: 0 auto; padding: 24px 16px 48px; }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; }
     h1 { font-family: "IBM Plex Serif", Georgia, serif; font-weight: 600; margin: 0 0 6px; font-size: clamp(1.7rem, 4vw, 2.3rem); }
     .sub { color: var(--muted); margin: 0 0 10px; }
     .status { display: inline-flex; gap: 8px; align-items: center; font-size: .85rem; color: var(--muted); margin-bottom: 16px; }
@@ -32,7 +31,7 @@
     .dot.wait { background: var(--accent); animation: pulse 1s infinite; }
     @keyframes pulse { 50% { opacity: .35; } }
     .panel {
-      border: 1px solid var(--line); background: rgba(18,22,15,.78);
+      border: 1px solid var(--line); background: rgba(18,22,15,.82);
       backdrop-filter: blur(6px); padding: 16px; margin-bottom: 12px;
     }
     label { display: block; font-size: .85rem; color: var(--muted); margin: 10px 0 4px; }
@@ -66,31 +65,59 @@
     .meta { color: var(--muted); font-size: .9rem; margin-bottom: 10px; }
     .hidden { display: none !important; }
     code { color: var(--accent); }
+    .coach {
+      margin: 10px 0 14px; padding: 12px 14px;
+      border-left: 3px solid var(--accent);
+      background: rgba(196,163,90,.08);
+      font-size: 1rem; line-height: 1.35;
+      animation: coachIn .45s ease-out;
+    }
+    @keyframes coachIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
     .play-grid {
       display: grid; grid-template-columns: 1fr; gap: 14px;
     }
-    @media (min-width: 800px) {
-      .play-grid { grid-template-columns: 1.1fr .9fr; }
+    @media (min-width: 860px) {
+      .play-grid { grid-template-columns: 1.25fr .75fr; }
     }
     .hexboard {
-      position: relative; width: 100%; aspect-ratio: 1.15; max-height: 420px;
-      background: rgba(0,0,0,.25); border: 1px solid var(--line); overflow: hidden;
+      position: relative; width: 100%; aspect-ratio: 1; max-height: 480px;
+      border: 1px solid var(--line); overflow: hidden;
+      background:
+        linear-gradient(180deg, rgba(10,12,8,.28), rgba(10,12,8,.45)),
+        url("/assets/location_field_cordon.webp") center/cover;
     }
     .hex {
       position: absolute; width: 52px; height: 60px;
       clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
-      background: #2a3324; border: 0; color: var(--ink); font-size: .65rem;
-      display: flex; align-items: center; justify-content: center; cursor: pointer;
+      background: rgba(20, 28, 16, .55); border: 0; color: var(--ink); font-size: .65rem;
+      display: flex; align-items: center; justify-content: center; cursor: default;
       transform: translate(-50%, -50%);
+      transition: background .15s, transform .15s;
     }
-    .hex:hover { background: #3a4632; }
-    .hex.reachable { background: #4a5e38; outline: 2px solid var(--accent); }
+    .hex.reachable { background: rgba(111,143,78,.72); outline: 2px solid var(--accent); cursor: pointer; }
+    .hex.reachable:hover { transform: translate(-50%, -50%) scale(1.06); }
     .hex.has-token { box-shadow: inset 0 0 0 2px var(--accent); }
+    .pawn {
+      width: 70%; height: 70%; object-fit: contain; pointer-events: none;
+      filter: drop-shadow(0 2px 3px rgba(0,0,0,.65));
+    }
+    .side-art {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;
+    }
+    .side-art figure {
+      margin: 0; border: 1px solid var(--line); background: rgba(0,0,0,.25); padding: 8px;
+    }
+    .side-art img { width: 100%; display: block; aspect-ratio: 3/4; object-fit: cover; }
+    .side-art figcaption { font-size: .72rem; color: var(--muted); margin-top: 6px; }
     .log {
-      max-height: 180px; overflow: auto; font-size: .8rem; color: var(--muted);
+      max-height: 160px; overflow: auto; font-size: .8rem; color: var(--muted);
       border-top: 1px solid var(--line); margin-top: 10px; padding-top: 8px;
     }
     .log div { padding: 2px 0; }
+    .tok img {
+      width: 40px; height: 40px; object-fit: cover; border: 1px solid var(--line);
+      flex-shrink: 0;
+    }
   </style>
 </head>
 <body>
@@ -144,14 +171,24 @@
         <span>Партия <code id="playCode"></code> · миссия <strong id="playMission"></strong></span>
         <button type="button" class="ghost" id="btnRefreshPlay">Обновить</button>
       </div>
-      <p class="hint" id="playHint">Ход: локация D20 → ККК → гекс D20 → D6 → клик по гексу</p>
+      <div class="coach" id="playCoach">Ждите старта…</div>
       <div class="play-grid">
         <div>
-          <div class="hexboard" id="hexBoard"></div>
+          <div class="hexboard" id="hexBoard" aria-label="Игровое поле локации"></div>
         </div>
         <div>
           <div class="row" id="actionRow"></div>
           <div id="tokens"></div>
+          <div class="side-art">
+            <figure>
+              <img id="cccArt" src="/assets/ccc_card.webp" alt="Карта ККК" />
+              <figcaption id="cccCaption">ККК — сектор (колода из дампа)</figcaption>
+            </figure>
+            <figure>
+              <img src="/assets/hex_sector_tile.webp" alt="Сектор 19 гексов" />
+              <figcaption>Сектор = 19 гексов (term.md)</figcaption>
+            </figure>
+          </div>
           <div class="log" id="playLog"></div>
         </div>
       </div>
@@ -239,11 +276,41 @@
       $('who').textContent = state.user.username;
     }
 
-    function hexToPixel(q, r) {
-      const size = 28;
-      const x = size * (Math.sqrt(3) * q + Math.sqrt(3) / 2 * r);
-      const y = size * (3 / 2 * r);
-      return { x: x + 50, y: y + 50 }; // percent-ish via board sizing below
+    function mePlayer(lobby) {
+      return (lobby.players || []).find(p => state.user && p.user_id === state.user.user_id) || null;
+    }
+    function historyHas(lobby, prefix, userId) {
+      return (lobby.history || []).some(h => h.startsWith(prefix) && h.includes(userId));
+    }
+    function coachText(lobby) {
+      const me = mePlayer(lobby);
+      if (!me) return 'Вы не в партии — перезайдите по коду.';
+      const uid = me.user_id;
+      if (!me.location) {
+        return 'Шаг 1/4 · Нажми «D20 локация» — куда идём по Зоне (form.md).';
+      }
+      if (me.sector == null) {
+        return `Шаг 2/4 · Локация: ${me.location}. Нажми «ККК сектор» — карта из колоды координат.`;
+      }
+      if (!historyHas(lobby, 'd20_hex:', uid)) {
+        return `Шаг 3/4 · Сектор ${me.sector}. Нажми «D20 гекс» — клетка внутри сектора (19 гексов).`;
+      }
+      if (!historyHas(lobby, 'd6_move:', uid) || (me.move_points === 0 && !(lobby.legal_actions || []).some(a => a.startsWith('move_token:')))) {
+        if ((lobby.legal_actions || []).some(a => a.startsWith('move_token:'))) {
+          return `Шаг 4/4 · ОД ${me.move_points}. Кликни подсвеченный гекс на карте — иди к цели.`;
+        }
+        return 'Шаг 4/4 · Нажми «D6 ход» — сколько гексов можешь пройти.';
+      }
+      if ((lobby.legal_actions || []).some(a => a.startsWith('move_token:'))) {
+        return `ОД ${me.move_points}. Кликни зелёный гекс. Карта — поле локации из дампа.`;
+      }
+      return `Ты на (${me.hex.q},${me.hex.r}) · ${me.location} · сектор ${me.sector}. Можно снова кинуть кости или ждать группу.`;
+    }
+
+    function axialDist(a, b) {
+      const dq = a.q - b.q, dr = a.r - b.r;
+      const ds = (-a.q - a.r) - (-b.q - b.r);
+      return (Math.abs(dq) + Math.abs(dr) + Math.abs(ds)) / 2;
     }
 
     function renderHexBoard(lobby) {
@@ -253,7 +320,7 @@
       const h = board.clientHeight || 360;
       const size = Math.min(w, h) / 12;
       const cx = w / 2, cy = h / 2;
-      const me = lobby.players.find(p => state.user && p.user_id === state.user.user_id);
+      const me = mePlayer(lobby);
       const mp = me ? me.move_points : 0;
       const from = me ? me.hex : { q: 0, r: 0 };
       const canMove = (lobby.legal_actions || []).some(a => a.startsWith('move_token:'));
@@ -269,13 +336,18 @@
         el.style.width = (size * 1.85) + 'px';
         el.style.height = (size * 2.1) + 'px';
         el.textContent = String(i + 1);
-        const dist = axialDist(from, { q, r });
         const occupied = lobby.players.filter(p => p.hex && p.hex.q === q && p.hex.r === r);
         if (occupied.length) {
           el.classList.add('has-token');
           el.title = occupied.map(p => p.display_name).join(', ');
-          el.textContent = occupied.map(p => p.display_name.slice(0, 2)).join('/');
+          el.textContent = '';
+          const img = document.createElement('img');
+          img.className = 'pawn';
+          img.src = '/assets/stalker_pawn.webp';
+          img.alt = occupied[0].display_name;
+          el.appendChild(img);
         }
+        const dist = axialDist(from, { q, r });
         if (canMove && mp > 0 && dist > 0 && dist <= mp) {
           el.classList.add('reachable');
           el.onclick = () => doAction({ type: 'move_token', to: { q, r } });
@@ -283,31 +355,34 @@
         board.appendChild(el);
       });
     }
-    function axialDist(a, b) {
-      const dq = a.q - b.q, dr = a.r - b.r;
-      const ds = (-a.q - a.r) - (-b.q - b.r);
-      return (Math.abs(dq) + Math.abs(dr) + Math.abs(ds)) / 2;
-    }
 
     function renderActions(lobby) {
       const row = $('actionRow');
       row.innerHTML = '';
       const labels = {
-        roll_d20_location: 'D20 локация',
-        draw_ccc: 'ККК сектор',
-        roll_d20_hex: 'D20 гекс',
-        roll_d6_move: 'D6 ход',
+        roll_d20_location: '1 · D20 локация',
+        draw_ccc: '2 · ККК сектор',
+        roll_d20_hex: '3 · D20 гекс',
+        roll_d6_move: '4 · D6 ход',
         start_game: 'Старт',
       };
+      const order = ['roll_d20_location', 'draw_ccc', 'roll_d20_hex', 'roll_d6_move'];
       const acts = lobby.legal_actions || [];
-      const playActs = acts.filter(a => !a.startsWith('set_ready') && !a.startsWith('move_token') && a !== 'start_game');
+      const playActs = order.filter(a => acts.includes(a));
       if (!playActs.length && lobby.phase === 'playing') {
-        row.innerHTML = '<span class="hint">Нет доступных действий (или обновите).</span>';
+        row.innerHTML = '<span class="hint">Нет кнопок хода — кликай гекс или обнови.</span>';
       }
+      const me = mePlayer(lobby);
+      const nextKey = !me ? null
+        : !me.location ? 'roll_d20_location'
+        : me.sector == null ? 'draw_ccc'
+        : !historyHas(lobby, 'd20_hex:', me.user_id) ? 'roll_d20_hex'
+        : 'roll_d6_move';
+
       for (const a of playActs) {
         const b = document.createElement('button');
         b.type = 'button';
-        b.className = 'primary';
+        b.className = a === nextKey ? 'primary' : '';
         b.textContent = labels[a] || a;
         b.onclick = () => doAction({ type: a });
         row.appendChild(b);
@@ -345,9 +420,15 @@
       if (playing) {
         $('playCode').textContent = lobby.code;
         $('playMission').textContent = lobby.mission_id;
+        $('playCoach').textContent = coachText(lobby);
+        const me = mePlayer(lobby);
+        if (me && me.sector != null) {
+          $('cccCaption').textContent = `ККК → сектор ${me.sector}` + (me.location ? ` · ${me.location}` : '');
+        }
         $('tokens').innerHTML = lobby.players.map(p => `
           <div class="tok">
-            <div>
+            <img src="/assets/stalker_token.webp" alt="" />
+            <div style="flex:1">
               <strong>${escapeHtml(p.display_name)}</strong>
               ${p.is_gm ? '<span class="badge gm">ГМ</span>' : ''}
               <div class="hint">${p.location || '—'} · сектор ${p.sector ?? '—'} · гекс (${p.hex.q},${p.hex.r}) · ОД ${p.move_points}</div>

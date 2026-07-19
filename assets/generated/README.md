@@ -1,9 +1,14 @@
 # Generated assets (Recraft)
 
-| File | Prompt theme | Model |
-|------|--------------|-------|
-| `hex_sector_tile.png` | Hex sector / 19-cell zone tile | recraftv3 digital_illustration |
-| `stalker_token.png` | Player token (gas mask stalker) | recraftv3 digital_illustration |
-| `zone_atmosphere.png` | Misty exclusion-zone backdrop 16:9 | recraftv3 digital_illustration |
+Source of visual brief: `form.md.md` + `term.md.md` (tabletop dump text — no original raster dump in repo).
 
-Regenerate via Recraft MCP `generate_image` if art direction changes.
+| File | From dump | Model |
+|------|-----------|-------|
+| `zone_atmosphere.png` | Zone atmosphere backdrop | recraftv3 |
+| `hex_sector_tile.png` | Sector = 19 hexes | recraftv3 |
+| `stalker_token.png` | Player фишка | recraftv3 |
+| `location_field_cordon.png` | Игровое поле локации + чёрные гексы | recraftv3 |
+| `ccc_card.png` | Колода координационных карт (ККК) | recraftv3 |
+| `stalker_pawn.png` | Фишка на гексе | recraftv3 |
+
+Served to the web client from `web/assets/*.webp` (same bytes; Recraft returns WebP).
