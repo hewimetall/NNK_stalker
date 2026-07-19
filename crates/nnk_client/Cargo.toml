@@ -4,20 +4,23 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Bevy presentation client (native + WASM)"
+default-run = "nnk_client_app"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 name = "nnk_client"
 
 [[bin]]
-name = "nnk_client"
+name = "nnk_client_app"
 path = "src/main.rs"
 
 [dependencies]
 nnk_domain = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+bevy_ecs = "0.15"
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 bevy = { version = "0.15", default-features = false, features = [
     "bevy_asset",
     "bevy_color",
@@ -36,4 +39,21 @@ bevy = { version = "0.15", default-features = false, features = [
 ] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+bevy = { version = "0.15", default-features = false, features = [
+    "bevy_asset",
+    "bevy_color",
+    "bevy_core_pipeline",
+    "bevy_render",
+    "bevy_sprite",
+    "bevy_state",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_window",
+    "bevy_winit",
+    "default_font",
+    "png",
+    "webgl2",
+] }
 console_error_panic_hook = "0.1"
+getrandom_02 = { version = "0.2", features = ["js"], package = "getrandom" }
+getrandom_03 = { version = "0.3", features = ["wasm_js"], package = "getrandom" }

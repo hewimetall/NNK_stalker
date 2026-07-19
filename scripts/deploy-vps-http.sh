@@ -27,6 +27,11 @@ git fetch --all --prune
 git checkout "$REPO_REF"
 git pull --ff-only origin "$REPO_REF" || true
 
+rustup target add wasm32-unknown-unknown
+if ! command -v trunk >/dev/null 2>&1; then
+  cargo install trunk
+fi
+(cd web && NO_COLOR=true trunk build --release)
 cargo build -p nnk_server --release
 
 if [[ ! -f "$APP_DIR/.jwt_secret" ]]; then
@@ -37,7 +42,7 @@ fi
 cat >"$APP_DIR/nnk.env" <<EOF
 NNK_BIND=127.0.0.1:8080
 NNK_DATABASE_URL=sqlite:${APP_DIR}/nnk.db?mode=rwc
-NNK_STATIC_DIR=${APP_DIR}/web
+NNK_STATIC_DIR=${APP_DIR}/web/dist
 NNK_JWT_SECRET=$(cat "$APP_DIR/.jwt_secret")
 EOF
 chmod 600 "$APP_DIR/nnk.env"

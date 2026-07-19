@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="no-store" />
+  <title>NNK Stalker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg0: #12160f; --bg1: #1c2418; --ink: #e8e0c8; --muted: #9a9178;
+      --accent: #c4a35a; --ok: #6f8f4e; --danger: #c4785a; --target: #d7b04f;
+      --path: rgba(196, 163, 90, .32);
+      --line: rgba(232, 224, 200, 0.14);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; color: var(--ink);
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      background:
+        linear-gradient(180deg, rgba(12,14,10,.72), rgba(12,14,10,.88)),
+        url("/assets/zone_atmosphere.webp") center/cover fixed;
+    }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { font-family: "IBM Plex Serif", Georgia, serif; font-weight: 600; margin: 0 0 6px; font-size: clamp(1.7rem, 4vw, 2.3rem); }
+    .sub { color: var(--muted); margin: 0 0 10px; }
+    .status { display: inline-flex; gap: 8px; align-items: center; font-size: .85rem; color: var(--muted); margin-bottom: 16px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+    .dot.ok { background: var(--ok); } .dot.bad { background: var(--danger); }
+    .dot.wait { background: var(--accent); animation: pulse 1s infinite; }
+    @keyframes pulse { 50% { opacity: .35; } }
+    .panel {
+      border: 1px solid var(--line); background: rgba(18,22,15,.82);
+      backdrop-filter: blur(6px); padding: 16px; margin-bottom: 12px;
+    }
+    label { display: block; font-size: .85rem; color: var(--muted); margin: 10px 0 4px; }
+    input {
+      width: 100%; padding: 10px 12px; border: 1px solid var(--line);
+      background: #0f130e; color: var(--ink); font: inherit;
+    }
+    input:focus { outline: 1px solid var(--accent); }
+    .hint { font-size: .8rem; color: var(--muted); margin-top: 6px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+    button {
+      border: 1px solid var(--accent); background: transparent; color: var(--ink);
+      padding: 10px 14px; font: inherit; cursor: pointer;
+    }
+    button.primary { background: var(--accent); color: #1a160c; }
+    button.ghost { border-color: var(--line); color: var(--muted); }
+    button:disabled { opacity: .4; cursor: not-allowed; }
+    .err { color: var(--danger); min-height: 1.2em; margin-top: 10px; white-space: pre-wrap; font-weight: 600; }
+    .okmsg { color: var(--ok); margin-top: 10px; }
+    .seat, .tok {
+      display: flex; justify-content: space-between; gap: 10px; align-items: center;
+      padding: 8px 0; border-bottom: 1px solid var(--line); font-size: .92rem;
+    }
+    .seat:last-child, .tok:last-child { border-bottom: 0; }
+    .badge {
+      font-size: .72rem; letter-spacing: .04em; text-transform: uppercase;
+      padding: 3px 8px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap;
+    }
+    .badge.ready { color: var(--ok); border-color: var(--ok); }
+    .badge.gm { color: var(--accent); border-color: var(--accent); }
+    .meta { color: var(--muted); font-size: .9rem; margin-bottom: 10px; }
+    .hidden { display: none !important; }
+    code { color: var(--accent); }
+    .coach {
+      margin: 10px 0 14px; padding: 12px 14px;
+      border-left: 3px solid var(--accent);
+      background: rgba(196,163,90,.08);
+      font-size: 1.05rem; line-height: 1.35;
+      white-space: pre-wrap;
+      animation: coachIn .45s ease-out;
+    }
+    .result-banner {
+      margin: 0 0 14px; padding: 12px 14px;
+      border: 1px solid rgba(196,163,90,.55);
+      background: rgba(196,163,90,.14);
+      font-weight: 600;
+    }
+    .cta-primary {
+      width: 100%;
+      min-height: 58px;
+      font-size: 1.08rem;
+      font-weight: 600;
+      text-align: left;
+    }
+    .wait-note {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      background: rgba(0,0,0,.18);
+      color: var(--muted);
+    }
+    .tablet {
+      margin: 12px 0 14px;
+      border: 1px solid rgba(196,163,90,.36);
+      background:
+        linear-gradient(135deg, rgba(196,163,90,.10), rgba(0,0,0,.10)),
+        rgba(12,15,10,.56);
+    }
+    .tablet-head {
+      display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+      padding-bottom: 10px; border-bottom: 1px solid var(--line);
+    }
+    .tablet-title { font-family: "IBM Plex Serif", Georgia, serif; font-size: 1.16rem; }
+    .tablet-grid {
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
+      margin-top: 12px;
+    }
+    @media (min-width: 760px) {
+      .tablet-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
+    .tablet-field {
+      min-height: 58px; padding: 8px 10px; border: 1px solid var(--line);
+      background: rgba(0,0,0,.18);
+    }
+    .tablet-field span {
+      display: block; color: var(--muted); font-size: .72rem; text-transform: uppercase;
+      letter-spacing: .05em; margin-bottom: 3px;
+    }
+    .tablet-field strong { font-size: .98rem; }
+    .briefing {
+      margin-top: 10px; color: var(--muted); line-height: 1.35;
+      border-top: 1px solid var(--line); padding-top: 10px;
+    }
+    @keyframes coachIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+    .play-grid {
+      display: grid; grid-template-columns: 1fr; gap: 14px;
+    }
+    @media (min-width: 860px) {
+      .play-grid { grid-template-columns: 1.25fr .75fr; }
+    }
+    .hexboard {
+      position: relative; width: 100%; aspect-ratio: 1; max-height: 480px;
+      border: 1px solid var(--line); overflow: hidden;
+      background:
+        linear-gradient(180deg, rgba(10,12,8,.28), rgba(10,12,8,.45)),
+        url("/assets/location_field_cordon.webp") center/cover;
+    }
+    .board-caption {
+      position: absolute; inset: 0; pointer-events: none; z-index: 1;
+      display: flex; align-items: flex-start; justify-content: center;
+      padding: 18px;
+      background: linear-gradient(180deg, rgba(0,0,0,.42), transparent 34%);
+      text-align: center;
+    }
+    .board-caption strong {
+      display: block;
+      font-family: "IBM Plex Serif", Georgia, serif;
+      font-size: clamp(1.65rem, 6vw, 3.2rem);
+      line-height: 1;
+      text-shadow: 0 3px 16px rgba(0,0,0,.92);
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .board-caption span {
+      display: block; margin-top: 6px; color: var(--muted);
+      text-shadow: 0 2px 8px rgba(0,0,0,.9);
+    }
+    .hex {
+      position: absolute; width: 52px; height: 60px;
+      clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+      background: rgba(20, 28, 16, .55); border: 0; color: var(--ink); font-size: .65rem;
+      display: flex; align-items: center; justify-content: center; cursor: default;
+      transform: translate(-50%, -50%);
+      transition: background .15s, transform .15s;
+      z-index: 2;
+    }
+    .hex.path-hint { background: var(--path); box-shadow: inset 0 0 0 1px rgba(196,163,90,.55); }
+    .hex.reachable { background: rgba(111,143,78,.72); outline: 2px solid var(--accent); cursor: pointer; }
+    .hex.reachable:hover { transform: translate(-50%, -50%) scale(1.06); }
+    .hex.current { box-shadow: inset 0 0 0 3px var(--accent), 0 0 18px rgba(196,163,90,.36); }
+    .hex.target {
+      background: rgba(196,120,90,.70);
+      outline: 3px solid var(--target);
+      box-shadow: 0 0 22px rgba(215,176,79,.46);
+    }
+    .hex.current.target {
+      background: rgba(215,176,79,.78);
+      box-shadow: inset 0 0 0 3px var(--accent), 0 0 24px rgba(215,176,79,.58);
+    }
+    .hex.target::after {
+      content: "ЦЕЛЬ";
+      position: absolute; bottom: -16px; left: 50%; transform: translateX(-50%);
+      font-size: .58rem; color: var(--target); text-shadow: 0 1px 4px #000;
+      letter-spacing: .06em; font-weight: 600;
+    }
+    .hex.has-token:not(.current) { box-shadow: inset 0 0 0 2px var(--accent); }
+    .npc-dot {
+      position: absolute; width: 16px; height: 16px; right: 8px; bottom: 8px;
+      border-radius: 50%; border: 1px solid var(--ink); background: var(--danger);
+      box-shadow: 0 1px 6px rgba(0,0,0,.8);
+    }
+    .pawn {
+      width: 70%; height: 70%; object-fit: contain; pointer-events: none;
+      filter: drop-shadow(0 2px 3px rgba(0,0,0,.65));
+    }
+    .side-art {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;
+    }
+    .side-art figure {
+      margin: 0; border: 1px solid var(--line); background: rgba(0,0,0,.25); padding: 8px;
+    }
+    .side-art img { width: 100%; display: block; aspect-ratio: 3/4; object-fit: cover; }
+    .side-art figcaption { font-size: .72rem; color: var(--muted); margin-top: 6px; }
+    .log {
+      max-height: 160px; overflow: auto; font-size: .8rem; color: var(--muted);
+      border-top: 1px solid var(--line); margin-top: 10px; padding-top: 8px;
+    }
+    .log div { padding: 2px 0; }
+    .tok img {
+      width: 40px; height: 40px; object-fit: cover; border: 1px solid var(--line);
+      flex-shrink: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>NNK Stalker</h1>
+    <p class="sub">Зона · лобби 4–5 · ход: D20 → ККК → гекс → D6 → движение</p>
+    <div class="status"><span class="dot wait" id="healthDot"></span><span id="healthText">проверка сервера…</span></div>
+
+    <section id="authPanel" class="panel">
+      <strong>Авторизация</strong>
+      <p class="hint">Регистрация → Войти. Логин 3–32, пароль от 8.</p>
+      <form id="authForm" autocomplete="on">
+        <label for="username">Логин</label>
+        <input id="username" name="username" autocomplete="username" required minlength="3" maxlength="32" />
+        <label for="password">Пароль</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required minlength="8" />
+        <div class="row">
+          <button type="submit" class="primary" id="btnLogin">Войти</button>
+          <button type="button" id="btnRegister">Регистрация</button>
+        </div>
+      </form>
+      <div class="err" id="authErr" role="alert"></div>
+      <div class="okmsg hidden" id="authOk"></div>
+    </section>
+
+    <section id="lobbyPanel" class="panel hidden">
+      <div class="meta row" style="justify-content:space-between;margin:0 0 10px">
+        <span>Вы: <strong id="who"></strong></span>
+        <button type="button" class="ghost" id="btnLogout">Выйти</button>
+      </div>
+      <div id="lobbyControls">
+        <div class="row">
+          <button type="button" class="primary" id="btnCreate">Создать лобби</button>
+        </div>
+        <label for="roomCode">Код комнаты</label>
+        <input id="roomCode" placeholder="ABCD12" maxlength="6" autocomplete="off" />
+        <div class="row">
+          <button type="button" id="btnJoin">Войти в лобби</button>
+          <button type="button" id="btnReady">Готов</button>
+          <button type="button" id="btnUnready">Не готов</button>
+          <button type="button" id="btnStart" disabled>Старт (ГМ)</button>
+        </div>
+      </div>
+      <div class="err" id="lobbyErr" role="alert"></div>
+      <div id="lobbyMeta" class="meta" style="margin-top:14px"></div>
+      <div id="seats"></div>
+    </section>
+
+    <section id="playPanel" class="panel hidden">
+      <div class="meta row" style="justify-content:space-between;margin:0">
+        <span>Партия <code id="playCode"></code> · миссия <strong id="playMission"></strong></span>
+        <button type="button" class="ghost" id="btnRefreshPlay">Обновить</button>
+      </div>
+      <section class="tablet" id="playerTablet" aria-label="Планшет игрока">
+        <div class="tablet-head">
+          <div>
+            <div class="tablet-title">Планшет игрока</div>
+            <div class="hint">Позывной: <strong id="tabletCallsign">—</strong></div>
+          </div>
+          <div class="hint">Миссия: <strong id="tabletMission">—</strong></div>
+          <div class="hint">День/час Зоны: <strong id="tabletClock">—</strong></div>
+        </div>
+        <div class="tablet-grid">
+          <div class="tablet-field"><span>Локация</span><strong id="tabletLocation">—</strong></div>
+          <div class="tablet-field"><span>Сектор</span><strong id="tabletSector">—</strong></div>
+          <div class="tablet-field"><span>ККК</span><strong id="tabletCcc">—</strong></div>
+          <div class="tablet-field"><span>Текущий гекс</span><strong id="tabletHex">—</strong></div>
+          <div class="tablet-field"><span>ЦЕЛЬ гекс</span><strong id="tabletTargetHex">—</strong></div>
+          <div class="tablet-field"><span>ОД</span><strong id="tabletMovePoints">—</strong></div>
+          <div class="tablet-field"><span>Стадия хода</span><strong id="tabletStage">—</strong></div>
+          <div class="tablet-field"><span>Ходит</span><strong id="tabletActive">—</strong></div>
+        </div>
+        <div class="briefing" id="tabletBriefing">—</div>
+      </section>
+      <div class="coach" id="playCoach">Ждите старта…</div>
+      <div class="result-banner hidden" id="resultBanner"></div>
+      <div class="play-grid">
+        <div>
+          <div class="hexboard" id="hexBoard" aria-label="Игровое поле локации"></div>
+        </div>
+        <div>
+          <div class="row" id="actionRow"></div>
+          <div id="tokens"></div>
+          <div class="side-art">
+            <figure>
+              <img id="cccArt" src="/assets/ccc_card.webp" alt="Карта ККК" />
+              <figcaption id="cccCaption">ККК — сектор (колода из дампа)</figcaption>
+            </figure>
+            <figure>
+              <img src="/assets/hex_sector_tile.webp" alt="Сектор 19 гексов" />
+              <figcaption>Сектор = 19 гексов (term.md)</figcaption>
+            </figure>
+          </div>
+          <div class="log" id="playLog"></div>
+        </div>
+      </div>
+      <div class="err" id="playErr" role="alert"></div>
+    </section>
+  </div>
+
+  <script>
+    const TIMEOUT_MS = 12000;
+    // Same document order as nnk_domain::sector_hexes(): left-to-right,
+    // top-to-bottom visual row-major for the radius-2 sector flower.
+    const SECTOR = [
+      [0,-2],[1,-2],[2,-2],[-1,-1],[0,-1],[1,-1],[2,-1],
+      [-2,0],[-1,0],[0,0],[1,0],[2,0],[-2,1],[-1,1],[0,1],[1,1],
+      [-2,2],[-1,2],[0,2]
+    ];
+    const LOCATION_NAMES = [
+      'Кордон', 'Свалка', 'Болота', 'НИИ Агропром', 'Подземелье Агропрома',
+      'Темная долина', 'Лаборатория Х-18', 'Бар (Завод Росток)', 'Дикая территория',
+      'Янтарь', 'Лаб. Х-16', 'Военные склады', 'Радар', 'Припять',
+      'Затон', 'Юпитер', 'Восточная Припять', 'ЧАЭС'
+    ];
+    const state = {
+      token: localStorage.getItem('nnk_token') || '',
+      user: null, code: '', ws: null, lobby: null, inflight: 0,
+    };
+    const $ = (id) => document.getElementById(id);
+
+    function setStatus(kind, text) {
+      $('healthDot').className = 'dot ' + (kind || '');
+      $('healthText').textContent = text;
+    }
+    function setInflight(delta) {
+      state.inflight = Math.max(0, state.inflight + delta);
+      const busy = state.inflight > 0;
+      for (const id of ['btnLogin','btnRegister','btnCreate','btnJoin','btnReady','btnUnready','btnStart','btnRefreshPlay']) {
+        const b = $(id); if (!b) continue;
+        if (id === 'btnStart' && !busy) b.disabled = !(state.lobby && state.lobby.can_start);
+        else if (id !== 'btnStart') b.disabled = busy;
+      }
+    }
+    async function api(path, opts = {}) {
+      const headers = { ...(opts.headers || {}) };
+      if (opts.body !== undefined) headers['content-type'] = 'application/json';
+      if (state.token) headers.Authorization = `Bearer ${state.token}`;
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+      setInflight(1);
+      try {
+        const res = await fetch(path, { ...opts, headers, signal: ctrl.signal, cache: 'no-store' });
+        const text = await res.text();
+        let data = null;
+        try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+        if (!res.ok) {
+          const err = new Error((data && data.error) || text || res.statusText);
+          err.status = res.status;
+          throw err;
+        }
+        return data;
+      } catch (e) {
+        if (e.name === 'AbortError') throw new Error('таймаут запроса');
+        throw e;
+      } finally {
+        clearTimeout(timer);
+        setInflight(-1);
+      }
+    }
+    async function ping() {
+      setStatus('wait', 'проверка…');
+      try {
+        const res = await fetch('/health', { cache: 'no-store', signal: AbortSignal.timeout(5000) });
+        if (!res.ok) throw new Error('bad');
+        setStatus('ok', 'сервер онлайн');
+        return true;
+      } catch {
+        setStatus('bad', 'сервер недоступен');
+        return false;
+      }
+    }
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function sectorHasHex(hex) {
+      return !!hex && SECTOR.some(([q, r]) => hex.q === q && hex.r === r);
+    }
+    function coordKey(hex) {
+      return hex ? `${Number(hex.q)},${Number(hex.r)}` : '';
+    }
+    function coordLabel(hex) {
+      if (!hex) return '—';
+      return `#${hexNumberByCoord(hex.q, hex.r)} (${hex.q},${hex.r})`;
+    }
+    function sameCoord(a, b) {
+      return !!a && !!b && Number(a.q) === Number(b.q) && Number(a.r) === Number(b.r);
+    }
+    function shortText(text, max = 260) {
+      const clean = String(text || '—').replace(/\s+/g, ' ').trim();
+      return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
+    }
+    function cccLabel(player) {
+      if (!player) return '—';
+      const tens = player.ccc_tens;
+      const units = player.ccc_units;
+      if (tens == null && units == null && player.sector == null) return '—';
+      return `${tens ?? '—'} / ${units ?? '—'} → ${player.sector ?? '—'}`;
+    }
+    function missionLabel(lobby) {
+      const title = lobby.mission_title || `Миссия ${lobby.mission_id}`;
+      return `${title}: ${lobby.mission_objective || 'цель уточняется'}`;
+    }
+    function locationCaption(lobby, me) {
+      const direct = me && me.location;
+      if (direct) return direct;
+      const active = activePlayer(lobby);
+      if (active && active.location) return active.location;
+      return LOCATION_NAMES[0];
+    }
+    function invisibleTokenWarning(lobby) {
+      return (lobby.players || []).some(p => p.hex && !sectorHasHex(p.hex))
+        ? 'Фишка вне видимого сектора — баг/ход вне поля'
+        : '';
+    }
+    function legalMoveCoords(lobby) {
+      return (lobby.legal_actions || [])
+        .map(action => String(action).match(/^move_token:(-?\d+),(-?\d+)$/))
+        .filter(Boolean)
+        .map(m => ({ q: Number(m[1]), r: Number(m[2]) }));
+    }
+    function pathHintKeys(from, target) {
+      const keys = new Set();
+      if (!from || !target || sameCoord(from, target)) return keys;
+      let current = { q: Number(from.q), r: Number(from.r) };
+      for (let guard = 0; guard < 12 && !sameCoord(current, target); guard += 1) {
+        const currentDist = axialDist(current, target);
+        const next = SECTOR
+          .map(([q, r]) => ({ q, r }))
+          .filter(hex => axialDist(current, hex) === 1 && axialDist(hex, target) < currentDist)
+          .sort((a, b) => axialDist(a, target) - axialDist(b, target))[0];
+        if (!next) break;
+        keys.add(coordKey(next));
+        current = next;
+      }
+      return keys;
+    }
+    function lastCoordLabel(line) {
+      const raw = String(line);
+      const debugMatches = [...raw.matchAll(/q:\s*(-?\d+),\s*r:\s*(-?\d+)/g)];
+      if (debugMatches.length) {
+        const m = debugMatches[debugMatches.length - 1];
+        return `(${m[1]},${m[2]})`;
+      }
+      const pairMatches = [...raw.matchAll(/(-?\d+)\s*,\s*(-?\d+)/g)];
+      if (pairMatches.length) {
+        const m = pairMatches[pairMatches.length - 1];
+        return `(${m[1]},${m[2]})`;
+      }
+      return '';
+    }
+    function formatHistoryLine(line, lobby) {
+      const raw = String(line);
+      if (raw === 'room_created') return 'Комната создана';
+
+      let m = raw.match(/^player_joined:(.+)$/);
+      if (m) return `Игрок вошёл: ${m[1]}`;
+
+      m = raw.match(/^ready:([0-9a-f-]{32,36}):(true|false)$/i);
+      if (m) return `${playerNameById(lobby, m[1])}: ${m[2] === 'true' ? 'готов' : 'не готов'}`;
+
+      m = raw.match(/^game_started:(\d+)/);
+      if (m) return `Игра началась: игроков ${m[1]}`;
+
+      m = raw.match(/^mission_started:(\d+):(.+)$/);
+      if (m) return `Миссия выбрана: ${m[1]} · ${m[2]}`;
+      m = raw.match(/^mission_started:(\d+)/);
+      if (m) return `Миссия выбрана: ${m[1]}`;
+
+      m = raw.match(/^d20_location_reroll:(\d+)/);
+      if (m) return `D20 локация: выпало ${m[1]}, переброс`;
+
+      m = raw.match(/^d20_location:(\d+):(.+):([0-9a-f-]{32,36})$/i);
+      if (m) return `${playerNameById(lobby, m[3])}: D20 локация ${m[1]} → ${m[2]}`;
+      if (raw.startsWith('d20_location:')) {
+        const parts = raw.split(':');
+        if (parts.length >= 3) return `D20 локация: ${parts[2]} (${parts[1]})`;
+      }
+
+      m = raw.match(/^ccc:(\d+):(\d+):(\d+):([0-9a-f-]{32,36})$/i);
+      if (m) return `${playerNameById(lobby, m[4])}: ККК десятки ${m[1]}, единицы ${m[2]} → сектор ${m[3]}`;
+
+      m = raw.match(/^d20_hex:(\d+):([0-9a-f-]{32,36}):(-?\d+),(-?\d+)$/i);
+      if (m) return `${playerNameById(lobby, m[2])}: D20 гекс ${m[1]} → #${hexNumberByCoord(m[3], m[4])} (${m[3]},${m[4]})`;
+
+      m = raw.match(/^d6_move:(\d+):([0-9a-f-]{32,36})$/i);
+      if (m) return `${playerNameById(lobby, m[2])}: D6 ход ${m[1]} ОД`;
+
+      m = raw.match(/^moved:([0-9a-f-]{32,36}):(.+)$/i);
+      if (m) {
+        const coord = lastCoordLabel(raw.includes('->') ? raw.split('->').pop() : raw);
+        return coord ? `${playerNameById(lobby, m[1])}: перешёл на ${coord}` : `${playerNameById(lobby, m[1])}: сделал ход`;
+      }
+
+      m = raw.match(/^arrived:([0-9a-f-]{32,36}):(.+)$/i);
+      if (m) {
+        const coord = lastCoordLabel(raw);
+        return `${playerNameById(lobby, m[1])}: прибыл в целевой гекс${coord ? ` ${coord}` : ''}; часы Зоны сдвинулись`;
+      }
+
+      m = raw.match(/^npc_spawned:([^:]+):(.+)$/i);
+      if (m) return `НПС появился: ${m[1]} (${npcKindLabel(m[2])})`;
+
+      m = raw.match(/^spawn_npc:([^:]+):(.+)$/i);
+      if (m) return `НПС появился: ${m[1]} (${npcKindLabel(m[2])})`;
+
+      m = raw.match(/^clock:(\d+):(\d+)$/i);
+      if (m) return `Часы Зоны: день ${m[1]}, ${String(m[2]).padStart(2, '0')}:00`;
+
+      m = raw.match(/^chat:([0-9a-f-]{32,36}):(.*)$/i);
+      if (m) return `${playerNameById(lobby, m[1])}: ${m[2]}`;
+
+      return raw;
+    }
+    function npcKindLabel(kind) {
+      const normalized = String(kind || '').toLowerCase();
+      if (normalized.includes('mutant')) return 'мутант';
+      if (normalized.includes('stalker')) return 'сталкер';
+      return kind;
+    }
+    function resultBannerText(lobby) {
+      const history = (lobby.history || []).slice().reverse();
+      for (const line of history) {
+        const raw = String(line);
+        let m = raw.match(/^d20_location:(\d+):(.+):([0-9a-f-]{32,36})$/i);
+        if (m) return `Результат: ${playerNameById(lobby, m[3])} бросил D20=${m[1]} — локация «${m[2]}».`;
+
+        m = raw.match(/^ccc:(\d+):(\d+):(\d+):([0-9a-f-]{32,36})$/i);
+        if (m) return `Результат: ${playerNameById(lobby, m[4])} вытянул ККК ${m[1]}+${m[2]} — сектор ${m[3]}.`;
+
+        m = raw.match(/^d20_hex:(\d+):([0-9a-f-]{32,36}):(-?\d+),(-?\d+)$/i);
+        if (m) return `Результат: ${playerNameById(lobby, m[2])} бросил D20=${m[1]} — гекс #${hexNumberByCoord(m[3], m[4])} (${m[3]},${m[4]}).`;
+
+        m = raw.match(/^d6_move:(\d+):([0-9a-f-]{32,36})$/i);
+        if (m) return `Результат: ${playerNameById(lobby, m[2])} бросил D6=${m[1]} — ${m[1]} ОД для движения.`;
+      }
+      return '';
+    }
+    function showLogin() {
+      $('authPanel').classList.remove('hidden');
+      $('lobbyPanel').classList.add('hidden');
+      $('playPanel').classList.add('hidden');
+      state.token = ''; state.user = null; state.lobby = null;
+      localStorage.removeItem('nnk_token');
+      if (state.ws) { try { state.ws.close(); } catch {} state.ws = null; }
+    }
+    function showAuthed() {
+      $('authPanel').classList.add('hidden');
+      $('lobbyPanel').classList.remove('hidden');
+      $('who').textContent = state.user.username;
+    }
+
+    function mePlayer(lobby) {
+      return (lobby.players || []).find(p => state.user && sameUserId(p.user_id, state.user.user_id)) || null;
+    }
+    function sameUserId(a, b) {
+      return !!a && !!b && String(a).toLowerCase() === String(b).toLowerCase();
+    }
+    function activePlayer(lobby) {
+      const activeId = lobby.active_user_id;
+      return (lobby.players || []).find(p => sameUserId(p.user_id, activeId)) || null;
+    }
+    function activeName(lobby) {
+      const active = activePlayer(lobby);
+      return (active && active.display_name) || lobby.active_display_name || 'игрок';
+    }
+    function isMyTurn(lobby) {
+      return !!(state.user && sameUserId(lobby.active_user_id, state.user.user_id));
+    }
+    function playerNameById(lobby, userId) {
+      const p = (lobby.players || []).find(player => sameUserId(player.user_id, userId));
+      return (p && p.display_name) || 'Игрок';
+    }
+    function hexNumberByCoord(q, r) {
+      const idx = SECTOR.findIndex(([sq, sr]) => Number(q) === sq && Number(r) === sr);
+      return idx >= 0 ? idx + 1 : '?';
+    }
+    function historyHas(lobby, prefix, userId) {
+      return (lobby.history || []).some(h => h.startsWith(prefix) && h.includes(userId));
+    }
+    function currentStage(lobby, me) {
+      if (me && me.travel_stage) return me.travel_stage;
+      if (!me) return 'need_location';
+      if (!me.location) return 'need_location';
+      if (me.sector == null) return 'need_sector';
+      if (!historyHas(lobby, 'd20_hex:', me.user_id)) return 'need_hex';
+      if (!historyHas(lobby, 'd6_move:', me.user_id) || me.move_points === 0) return 'need_d6';
+      return 'need_move';
+    }
+    function stageLabel(stage) {
+      return ({
+        need_location: 'нужна локация',
+        need_sector: 'нужен сектор',
+        need_hex: 'нужен гекс',
+        need_d6: 'нужен D6',
+        need_move: 'иди к цели',
+      })[stage] || 'ход';
+    }
+    function coachText(lobby) {
+      const me = mePlayer(lobby);
+      if (!me) return 'Вы не в партии — перезайдите по коду.';
+      if (lobby.phase === 'playing' && !lobby.active_user_id) {
+        return 'Игра идёт, но сервер не отдал активного игрока — нажми «Обновить».';
+      }
+      if (lobby.phase === 'playing' && !isMyTurn(lobby)) {
+        return `Сейчас ходит ${activeName(lobby)} — жди.\nТвои кнопки появятся здесь автоматически, когда ход дойдёт до тебя.`;
+      }
+      const turnPrefix = lobby.phase === 'playing'
+        ? `СЕЙЧАС ТВОЙ ХОД, ${me.display_name}.\n`
+        : '';
+      const stage = currentStage(lobby, me);
+      if (stage === 'need_location') {
+        return `${turnPrefix}Шаг 1/5 · Нажми большую кнопку «1 · D20 локация» — планшет получит локацию Зоны.`;
+      }
+      if (stage === 'need_sector') {
+        return `${turnPrefix}Шаг 2/5 · Локация: ${me.location}. Нажми «2 · ККК сектор» — тянем десятки и единицы координатной карты.`;
+      }
+      if (stage === 'need_hex') {
+        return `${turnPrefix}Шаг 3/5 · Сектор ${me.sector}. Нажми «3 · D20 гекс» — это твоя ЦЕЛЬ внутри сектора (1–19).`;
+      }
+      if (stage === 'need_d6') {
+        const target = coordLabel(me.target_hex);
+        return `${turnPrefix}Шаг 4/5 · ЦЕЛЬ: ${target}. Нажми «4 · D6 ход» — D6 даст ОД, сколько гексов можно пройти К ЦЕЛИ за этот рывок.`;
+      }
+      if (stage === 'need_move') {
+        const target = coordLabel(me.target_hex);
+        const current = coordLabel(me.hex);
+        const distance = me.target_hex ? axialDist(me.hex, me.target_hex) : 0;
+        if ((lobby.legal_actions || []).some(a => a.startsWith('move_token:'))) {
+          return `${turnPrefix}Шаг 5/5 · Иди К ЦЕЛИ: ${target}. Ты сейчас на ${current}, дистанция ${distance}, ОД ${me.move_points}.\nКликни зелёный гекс по жёлтой подсказке пути; правила не дадут уйти дальше от цели.`;
+        }
+        return `${turnPrefix}ЦЕЛЬ: ${target}. Движение сейчас недоступно: ОД ${me.move_points}. Если кнопка D6 пропала и зелёных гексов нет — нажми «Обновить».`;
+      }
+      return `${turnPrefix}Ты на (${me.hex.q},${me.hex.r}) · ${me.location} · сектор ${me.sector}. Заверши ход движением или обнови состояние.`;
+    }
+    function nextCoachAction(lobby) {
+      const me = mePlayer(lobby);
+      if (!me || lobby.phase !== 'playing') return null;
+      if (!isMyTurn(lobby)) return null;
+      const acts = lobby.legal_actions || [];
+      const canMove = acts.some(a => a.startsWith('move_token:'));
+      const stage = currentStage(lobby, me);
+      if (stage === 'need_location') return 'roll_d20_location';
+      if (stage === 'need_sector') return 'draw_ccc';
+      if (stage === 'need_hex') return 'roll_d20_hex';
+      if (stage === 'need_move' && canMove && me.move_points > 0) return null;
+      if (stage === 'need_d6') return 'roll_d6_move';
+      return null;
+    }
+
+    function axialDist(a, b) {
+      const dq = a.q - b.q, dr = a.r - b.r;
+      const ds = (-a.q - a.r) - (-b.q - b.r);
+      return (Math.abs(dq) + Math.abs(dr) + Math.abs(ds)) / 2;
+    }
+
+    function renderHexBoard(lobby) {
+      const board = $('hexBoard');
+      board.innerHTML = '';
+      const me = mePlayer(lobby);
+      const caption = document.createElement('div');
+      caption.className = 'board-caption';
+      caption.innerHTML = `<div><strong>${escapeHtml(locationCaption(lobby, me))}</strong><span>поле сектора · фон Кордона · 18 локаций Зоны</span></div>`;
+      board.appendChild(caption);
+      const w = board.clientWidth || 400;
+      const h = board.clientHeight || 360;
+      const size = Math.min(w, h) / 12;
+      const cx = w / 2, cy = h / 2;
+      const from = me ? me.hex : { q: 0, r: 0 };
+      const target = me ? me.target_hex : null;
+      const legalMoves = legalMoveCoords(lobby);
+      const legalMoveKeys = new Set(legalMoves.map(coordKey));
+      const hintKeys = pathHintKeys(from, target);
+
+      SECTOR.forEach(([q, r], i) => {
+        const x = size * (Math.sqrt(3) * q + Math.sqrt(3) / 2 * r) + cx;
+        const y = size * (3 / 2 * r) + cy;
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.className = 'hex';
+        el.style.left = x + 'px';
+        el.style.top = y + 'px';
+        el.style.width = (size * 1.85) + 'px';
+        el.style.height = (size * 2.1) + 'px';
+        el.textContent = String(i + 1);
+        const occupied = lobby.players.filter(p => p.hex && p.hex.q === q && p.hex.r === r);
+        const npcs = (lobby.npcs || []).filter(n => n.hex && n.hex.q === q && n.hex.r === r);
+        const here = { q, r };
+        if (hintKeys.has(coordKey(here))) el.classList.add('path-hint');
+        if (sameCoord(from, here)) el.classList.add('current');
+        if (sameCoord(target, here)) el.classList.add('target');
+        if (occupied.length) {
+          el.classList.add('has-token');
+          el.title = occupied.map(p => p.display_name).join(', ');
+          el.textContent = '';
+          const img = document.createElement('img');
+          img.className = 'pawn';
+          img.src = '/assets/stalker_pawn.webp';
+          img.alt = occupied[0].display_name;
+          el.appendChild(img);
+        }
+        if (npcs.length) {
+          const dot = document.createElement('span');
+          dot.className = 'npc-dot';
+          dot.title = npcs.map(n => `${n.name} (${npcKindLabel(n.kind)})`).join(', ');
+          el.appendChild(dot);
+          el.title = [el.title, dot.title].filter(Boolean).join(' · ');
+        }
+        if (legalMoveKeys.has(coordKey(here))) {
+          el.classList.add('reachable');
+          el.onclick = () => doAction({ type: 'move_token', to: { q, r } });
+        }
+        board.appendChild(el);
+      });
+    }
+
+    function renderActions(lobby) {
+      const row = $('actionRow');
+      row.innerHTML = '';
+      const labels = {
+        roll_d20_location: '1 · Бросить D20: локация',
+        draw_ccc: '2 · Вытянуть ККК: сектор',
+        roll_d20_hex: '3 · Бросить D20: гекс',
+        roll_d6_move: '4 · Бросить D6: очки движения',
+        start_game: 'Старт',
+      };
+      const order = ['roll_d20_location', 'draw_ccc', 'roll_d20_hex', 'roll_d6_move'];
+      const acts = lobby.legal_actions || [];
+      const appendNpcButtons = () => {
+        if (lobby.phase !== 'playing' || !acts.includes('spawn_npc')) return;
+        for (const npc of [
+          { kind: 'stalker', name: 'Сталкер', label: 'НПС: сталкер' },
+          { kind: 'mutant', name: 'Мутант', label: 'НПС: мутант' },
+        ]) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'ghost';
+          b.textContent = npc.label;
+          b.onclick = () => doAction({ type: 'spawn_npc', name: npc.name, kind: npc.kind });
+          row.appendChild(b);
+        }
+      };
+      if (lobby.phase === 'playing' && !isMyTurn(lobby)) {
+        row.innerHTML = `<div class="wait-note">Сейчас ходит <strong>${escapeHtml(activeName(lobby))}</strong> — жди. Когда будет твой ход, здесь появится одна большая кнопка.</div>`;
+        appendNpcButtons();
+        return;
+      }
+      const playActs = order.filter(a => acts.includes(a));
+      const nextKey = nextCoachAction(lobby);
+      if (nextKey && playActs.includes(nextKey)) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'primary cta-primary';
+        b.textContent = labels[nextKey] || nextKey;
+        b.onclick = () => doAction({ type: nextKey });
+        row.appendChild(b);
+      } else if (lobby.phase === 'playing') {
+        const hasMove = acts.some(a => a.startsWith('move_token:'));
+        row.innerHTML = `<div class="wait-note">${hasMove ? 'Кликни подсвеченный зелёный гекс на карте — это и есть кнопка движения.' : `Сейчас ходит ${escapeHtml(activeName(lobby))}. Если это ты и кнопок нет — нажми «Обновить».`}</div>`;
+      }
+      appendNpcButtons();
+      // TODO: Show a small GM-only mission control (mission id 1..10) when mission content exists.
+      // For now start_mission is intentionally hidden to avoid exposing the placeholder "Миссия 1".
+    }
+
+    function renderTablet(lobby) {
+      const me = mePlayer(lobby);
+      $('tabletCallsign').textContent = me ? me.display_name : '—';
+      $('tabletMission').textContent = missionLabel(lobby);
+      $('tabletClock').textContent = `день ${lobby.game_day ?? 1}, ${String(lobby.game_hour ?? 0).padStart(2, '0')}:00`;
+      $('tabletLocation').textContent = (me && me.location) || '—';
+      $('tabletSector').textContent = me && me.sector != null ? String(me.sector) : '—';
+      $('tabletCcc').textContent = cccLabel(me);
+      $('tabletHex').textContent = me ? coordLabel(me.hex) : '—';
+      $('tabletTargetHex').textContent = me ? coordLabel(me.target_hex) : '—';
+      $('tabletMovePoints').textContent = me ? String(me.move_points) : '—';
+      $('tabletStage').textContent = me ? stageLabel(currentStage(lobby, me)) : '—';
+      $('tabletActive').textContent = lobby.active_display_name || activeName(lobby);
+      $('tabletBriefing').textContent = shortText(lobby.mission_briefing);
+    }
+
+    function renderLobby(lobby) {
+      state.lobby = lobby;
+      state.code = lobby.code;
+      $('roomCode').value = lobby.code;
+      const playing = lobby.phase === 'playing';
+      $('lobbyControls').classList.toggle('hidden', playing);
+      $('playPanel').classList.toggle('hidden', !playing);
+      $('lobbyPanel').classList.toggle('hidden', false);
+
+      const readyCount = lobby.players.filter(p => p.ready).length;
+      $('lobbyMeta').innerHTML =
+        `Комната <code>${lobby.code}</code> · фаза <strong>${lobby.phase === 'playing' ? 'игра' : 'лобби'}</strong> · ` +
+        `${lobby.player_count}/${lobby.max_players} · готово ${readyCount}/${lobby.player_count}`;
+      $('seats').innerHTML = lobby.players.map(p => `
+        <div class="seat">
+          <div><strong>${escapeHtml(p.display_name)}</strong> ${p.is_gm ? '<span class="badge gm">ГМ</span>' : ''}</div>
+          <span class="badge ${p.ready ? 'ready' : ''}">${p.ready ? 'готов' : 'ждём'}</span>
+        </div>`).join('');
+      if (state.inflight === 0) $('btnStart').disabled = !lobby.can_start;
+      $('lobbyErr').textContent = playing ? '' : $('lobbyErr').textContent;
+
+      if (playing) {
+        $('playCode').textContent = lobby.code;
+        $('playMission').textContent = `${lobby.mission_title || lobby.mission_id} · ходит ${activeName(lobby)}`;
+        renderTablet(lobby);
+        $('playCoach').textContent = [coachText(lobby), invisibleTokenWarning(lobby)].filter(Boolean).join('\n');
+        const banner = resultBannerText(lobby);
+        $('resultBanner').textContent = banner;
+        $('resultBanner').classList.toggle('hidden', !banner);
+        const me = mePlayer(lobby);
+        if (me && me.sector != null) {
+          $('cccCaption').textContent = `ККК → сектор ${me.sector}` + (me.location ? ` · ${me.location}` : '');
+        }
+        const playerRows = lobby.players.map(p => `
+          <div class="tok">
+            <img src="/assets/stalker_token.webp" alt="" />
+            <div style="flex:1">
+              <strong>${escapeHtml(p.display_name)}</strong>
+              ${p.is_gm ? '<span class="badge gm">ГМ</span>' : ''}
+              ${sameUserId(p.user_id, lobby.active_user_id) ? '<span class="badge ready">ходит</span>' : ''}
+              <div class="hint">${p.location || '—'} · сектор ${p.sector ?? '—'} · ККК ${cccLabel(p)} · гекс ${coordLabel(p.hex)}${sectorHasHex(p.hex) ? '' : ' · вне видимого сектора'} · ЦЕЛЬ ${coordLabel(p.target_hex)} · ОД ${p.move_points} · ${stageLabel(p.travel_stage)}</div>
+            </div>
+          </div>`).join('');
+        const npcRows = (lobby.npcs || []).map(n => `
+          <div class="tok">
+            <img src="/assets/stalker_pawn.webp" alt="" />
+            <div style="flex:1">
+              <strong>${escapeHtml(n.name)}</strong>
+              <span class="badge">${escapeHtml(npcKindLabel(n.kind))}</span>
+              <div class="hint">НПС · гекс ${coordLabel(n.hex)}</div>
+            </div>
+          </div>`).join('');
+        $('tokens').innerHTML = playerRows + npcRows;
+        $('playLog').innerHTML = (lobby.history || []).slice().reverse().map(h => `<div>${escapeHtml(formatHistoryLine(h, lobby))}</div>`).join('');
+        renderActions(lobby);
+        requestAnimationFrame(() => renderHexBoard(lobby));
+      }
+    }
+
+    async function doAction(body) {
+      $('playErr').textContent = '';
+      $('lobbyErr').textContent = '';
+      const code = state.code || $('roomCode').value.trim().toUpperCase();
+      try {
+        const lobby = await api(`/api/rooms/${code}/action`, { method: 'POST', body: JSON.stringify(body) });
+        renderLobby(lobby);
+      } catch (e) {
+        $('playErr').textContent = e.message;
+        $('lobbyErr').textContent = e.message;
+      }
+    }
+
+    function connectWs(code) {
+      if (state.ws) { try { state.ws.close(); } catch {} }
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const url = `${proto}://${location.host}/ws/rooms/${encodeURIComponent(code)}?token=${encodeURIComponent(state.token)}`;
+      let ws;
+      try { ws = new WebSocket(url); } catch { return; }
+      state.ws = ws;
+      ws.onmessage = (ev) => {
+        let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+        if (msg.type === 'lobby') renderLobby(msg);
+        if (msg.type === 'error') {
+          $('lobbyErr').textContent = msg.message || 'ws error';
+          $('playErr').textContent = msg.message || 'ws error';
+        }
+      };
+    }
+
+    async function auth(kind) {
+      $('authErr').textContent = '';
+      $('authOk').classList.add('hidden');
+      const username = $('username').value.trim();
+      const password = $('password').value;
+      try {
+        const data = await api(`/api/auth/${kind}`, { method: 'POST', body: JSON.stringify({ username, password }) });
+        state.token = data.access_token;
+        localStorage.setItem('nnk_token', state.token);
+        state.user = await api('/api/me');
+        $('authOk').textContent = 'Ок';
+        $('authOk').classList.remove('hidden');
+        showAuthed();
+        setStatus('ok', 'авторизация ок');
+      } catch (e) {
+        $('authErr').textContent = e.message || String(e);
+      }
+    }
+
+    $('authForm').addEventListener('submit', (ev) => { ev.preventDefault(); auth('login'); });
+    $('btnRegister').addEventListener('click', (ev) => { ev.preventDefault(); auth('register'); });
+    $('btnLogout').addEventListener('click', () => { showLogin(); ping(); });
+    $('btnCreate').addEventListener('click', async () => {
+      $('lobbyErr').textContent = '';
+      try {
+        const created = await api('/api/rooms', { method: 'POST', body: '{}' });
+        const lobby = await api(`/api/rooms/${created.code}/join`, { method: 'POST', body: '{}' });
+        renderLobby(lobby); connectWs(created.code);
+      } catch (e) { $('lobbyErr').textContent = e.message; }
+    });
+    $('btnJoin').addEventListener('click', async () => {
+      $('lobbyErr').textContent = '';
+      const code = $('roomCode').value.trim().toUpperCase();
+      try {
+        const lobby = await api(`/api/rooms/${code}/join`, { method: 'POST', body: '{}' });
+        renderLobby(lobby); connectWs(code);
+      } catch (e) { $('lobbyErr').textContent = e.message; }
+    });
+    async function setReady(ready) {
+      const code = $('roomCode').value.trim().toUpperCase();
+      try {
+        const lobby = await api(`/api/rooms/${code}/ready`, { method: 'POST', body: JSON.stringify({ ready }) });
+        renderLobby(lobby);
+      } catch (e) { $('lobbyErr').textContent = e.message; }
+    }
+    $('btnReady').addEventListener('click', () => setReady(true));
+    $('btnUnready').addEventListener('click', () => setReady(false));
+    $('btnStart').addEventListener('click', async () => {
+      const code = $('roomCode').value.trim().toUpperCase();
+      try {
+        const lobby = await api(`/api/rooms/${code}/start`, { method: 'POST', body: '{}' });
+        renderLobby(lobby);
+      } catch (e) { $('lobbyErr').textContent = e.message; }
+    });
+    $('btnRefreshPlay').addEventListener('click', async () => {
+      const code = state.code || $('roomCode').value.trim().toUpperCase();
+      try {
+        const lobby = await api(`/api/rooms/${code}`);
+        renderLobby(lobby);
+      } catch (e) { $('playErr').textContent = e.message; }
+    });
+    window.addEventListener('resize', () => { if (state.lobby && state.lobby.phase === 'playing') renderHexBoard(state.lobby); });
+
+    (async () => {
+      await ping();
+      if (!state.token) return;
+      try {
+        state.user = await api('/api/me');
+        showAuthed();
+      } catch { showLogin(); }
+    })();
+    setInterval(ping, 20000);
+  </script>
+</body>
+</html>

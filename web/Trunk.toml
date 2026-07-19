@@ -1,10 +1,23 @@
 [build]
 target = "index.html"
 dist = "dist"
+public_url = "./"
+filehash = true
+minify = "on_release"
 
 [watch]
-watch = ["../crates/nnk_client", "../crates/nnk_domain", "../crates/nnk_protocol", "index.html"]
+watch = [
+  "../assets",
+  "../crates/nnk_client",
+  "../crates/nnk_domain",
+  "../crates/nnk_protocol",
+  "index.html",
+  "legacy_dom_lobby.html",
+]
 
 [serve]
-address = "127.0.0.1"
+addresses = ["127.0.0.1"]
 port = 8081
+
+[tools]
+wasm_bindgen = "0.2.126"

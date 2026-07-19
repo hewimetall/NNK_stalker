@@ -31,7 +31,7 @@ async fn main() -> anyhow::Result<()> {
         "dev-only-change-me".into()
     });
     let bind = std::env::var("NNK_BIND").unwrap_or_else(|_| "0.0.0.0:8080".into());
-    let static_dir = std::env::var("NNK_STATIC_DIR").unwrap_or_else(|_| "web".into());
+    let static_dir = std::env::var("NNK_STATIC_DIR").unwrap_or_else(|_| "web/dist".into());
 
     let store = Arc::new(SqliteStore::connect(&database_url).await?);
     let auth = Arc::new(AuthService::new(
@@ -75,7 +75,7 @@ async fn main() -> anyhow::Result<()> {
         .layer(TraceLayer::new_for_http());
 
     let addr: SocketAddr = bind.parse()?;
-    tracing::info!("nnk_server listening on http://{addr} (lobby UI from {static_dir}/)");
+    tracing::info!("nnk_server listening on http://{addr} (Bevy WASM from {static_dir}/)");
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())

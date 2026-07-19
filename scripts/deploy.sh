@@ -6,8 +6,10 @@ cd "$ROOT"
 export NNK_JWT_SECRET="${NNK_JWT_SECRET:-nnk-zone-secret-change-me}"
 export NNK_DATABASE_URL="${NNK_DATABASE_URL:-sqlite:${ROOT}/nnk.db?mode=rwc}"
 export NNK_BIND="${NNK_BIND:-0.0.0.0:8080}"
-export NNK_STATIC_DIR="${NNK_STATIC_DIR:-${ROOT}/web}"
+export NNK_STATIC_DIR="${NNK_STATIC_DIR:-${ROOT}/web/dist}"
 
+rustup target add wasm32-unknown-unknown
+(cd "$ROOT/web" && NO_COLOR=true trunk build --release)
 cargo build -p nnk_server --release
 
 SESSION="nnk-server"

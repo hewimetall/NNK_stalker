@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use nnk_domain::{HexCoord, LocationId};
+use nnk_domain::HexCoord;
 
 const HEX_SIZE: Vec2 = Vec2::new(28.0, 28.0);
 
@@ -7,18 +7,12 @@ pub struct MapPlugin;
 
 impl Plugin for MapPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(CurrentLocation(LocationId::Cordon))
-            .add_systems(Startup, setup_map);
+        app.add_systems(Startup, setup_map);
     }
 }
 
-#[derive(Resource)]
-struct CurrentLocation(LocationId);
-
 #[derive(Component)]
-struct HexCell {
-    hex: HexCoord,
-}
+struct HexCell;
 
 fn axial_to_world(hex: HexCoord) -> Vec2 {
     // pointy-top axial → pixel
@@ -62,7 +56,7 @@ fn setup_map(mut commands: Commands, asset_server: Res<AssetServer>) {
                     ..default()
                 },
                 Transform::from_xyz(pos.x, pos.y, 0.0),
-                HexCell { hex },
+                HexCell,
             ));
         }
     }
