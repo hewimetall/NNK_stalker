@@ -52,7 +52,13 @@ pub enum UiAction {
     Unready,
     Start,
     RefreshLobby,
-    /// Play: D20 location → CCC → D20 hex → D6 → move.
+    /// Пилигрим round loop.
+    RollExitZone,
+    RollExploreD6,
+    DrawEvent,
+    ReturnToBase,
+    FinishBase,
+    /// Mission targeting: D20 location → CCC → D20 hex → D6 → move.
     RollD20Location,
     DrawCcc,
     RollD20Hex,
@@ -454,6 +460,36 @@ fn handle_button_actions(
             UiAction::Unready => start_ready(false, &mut session, &net_tx),
             UiAction::Start => start_game(&mut session, &net_tx),
             UiAction::RefreshLobby => start_refresh(&mut session, &net_tx),
+            UiAction::RollExitZone => start_play_action(
+                nnk_protocol::ClientMsg::RollExitZone,
+                "Выход в Зону: D20...",
+                &mut session,
+                &net_tx,
+            ),
+            UiAction::RollExploreD6 => start_play_action(
+                nnk_protocol::ClientMsg::RollExploreD6,
+                "D6 ход по Зоне...",
+                &mut session,
+                &net_tx,
+            ),
+            UiAction::DrawEvent => start_play_action(
+                nnk_protocol::ClientMsg::DrawEvent,
+                "Карта события...",
+                &mut session,
+                &net_tx,
+            ),
+            UiAction::ReturnToBase => start_play_action(
+                nnk_protocol::ClientMsg::ReturnToBase,
+                "возврат на базу...",
+                &mut session,
+                &net_tx,
+            ),
+            UiAction::FinishBase => start_play_action(
+                nnk_protocol::ClientMsg::FinishBase,
+                "закрываем базу...",
+                &mut session,
+                &net_tx,
+            ),
             UiAction::RollD20Location => start_play_action(
                 nnk_protocol::ClientMsg::RollD20Location,
                 "бросок D20: локация...",

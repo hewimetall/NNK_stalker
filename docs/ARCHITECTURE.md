@@ -3,7 +3,8 @@
 Настольная кампания «Сталкер» → web-мультиплеер (друзья + ГМ).  
 Стек: **Rust · Bevy (client) · Axum · SQLite · JWT must-auth**.
 
-Дизайн: `form.md.md`, `term.md.md`. Skills: `docs/SKILLS.md`. Refs: `docs/REFERENCES.md`.
+Дизайн (canonical): [`docs/pilgrim/`](pilgrim/README.md) — НКИ «Пилигрим» v3.0.  
+Краткие выжимки: `form.md.md`, `term.md.md`. Skills: `docs/SKILLS.md`. Refs: `docs/REFERENCES.md`.
 
 ---
 
@@ -65,7 +66,17 @@ Adapted for multiplayer+GM (skill’s 2p-only metrics not applied):
 - `init(seed)` → `RoomState` with `rng_seed` + `history`
 - `step(state, action)` → new state; **illegal → `Err`, no mutate**
 - `legal_actions(state, user, role)`
-- Deterministic `ChaCha8` from seed; dice/CCC only server-side via rules
+- Deterministic `ChaCha8` from seed; dice/CCC/events only server-side via rules
+
+### Пилигрим round (Playing)
+
+| `round_phase` | Action | Rules ref |
+|---------------|--------|-----------|
+| `exit_zone` | `RollExitZone` (D20 → event tokens) | Фаза I «Выход в Зону» |
+| `explore` | `RollExploreD6` / `MoveToken` / `DrawEvent` | Фаза II «Розыгрыш событий» |
+| `return_base` | `FinishBase` → next round | Фаза III «База» |
+
+ККК + D20 local/hex + D6 — mission targeting sub-loop (`StartMission`), not a replacement for round phases.
 
 ---
 

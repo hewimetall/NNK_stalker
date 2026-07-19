@@ -32,6 +32,8 @@ pub struct CreateRoomResponse {
 pub struct LobbyView {
     pub code: String,
     pub phase: String,
+    pub round_phase: String,
+    pub round_number: u32,
     pub min_players: u8,
     pub max_players: u8,
     pub player_count: u8,
@@ -46,9 +48,18 @@ pub struct LobbyView {
     pub active_display_name: Option<String>,
     pub players: Vec<LobbyPlayerView>,
     pub npcs: Vec<LobbyNpcView>,
+    pub event_tokens: Vec<EventTokenView>,
+    pub last_event: Option<String>,
     pub history: Vec<String>,
     /// Snake_case action ids for the requesting user (empty if unknown).
     pub legal_actions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EventTokenView {
+    pub id: u32,
+    pub hex: HexCoord,
+    pub resolved: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -65,6 +76,9 @@ pub struct LobbyPlayerView {
     pub target_hex: Option<HexCoord>,
     pub move_points: u8,
     pub travel_stage: String,
+    pub hp: u16,
+    pub rubles: u32,
+    pub artifacts: u8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -103,6 +117,12 @@ impl LobbyView {
                 nnk_domain::RoomPhase::Lobby => "lobby".into(),
                 nnk_domain::RoomPhase::Playing => "playing".into(),
             },
+            round_phase: if state.phase == nnk_domain::RoomPhase::Lobby {
+                String::new()
+            } else {
+                state.round_phase.wire_id().into()
+            },
+            round_number: state.round_number,
             min_players: state.min_players,
             max_players: state.max_players,
             player_count: state.player_count(),
@@ -134,6 +154,9 @@ impl LobbyView {
                     target_hex: t.target_hex,
                     move_points: t.move_points,
                     travel_stage: travel_stage_wire_id(t.travel_stage).into(),
+                    hp: t.hp,
+                    rubles: t.rubles,
+                    artifacts: t.artifacts,
                 })
                 .collect(),
             npcs: state
@@ -145,6 +168,16 @@ impl LobbyView {
                     hex: npc.hex,
                 })
                 .collect(),
+            event_tokens: state
+                .event_tokens
+                .iter()
+                .map(|t| EventTokenView {
+                    id: t.id,
+                    hex: t.hex,
+                    resolved: t.resolved,
+                })
+                .collect(),
+            last_event: state.last_event.clone(),
             history,
             legal_actions: legal,
         }
@@ -153,6 +186,7 @@ impl LobbyView {
 
 fn travel_stage_wire_id(stage: TurnStage) -> &'static str {
     match stage {
+        TurnStage::Idle => "idle",
         TurnStage::NeedLocation => "need_location",
         TurnStage::NeedSector => "need_sector",
         TurnStage::NeedHex => "need_hex",
@@ -166,6 +200,11 @@ fn action_wire_id(action: Action) -> Option<String> {
         Action::SetReady { ready } => format!("set_ready:{ready}"),
         Action::StartGame => "start_game".into(),
         Action::StartMission { mission_id } => format!("start_mission:{mission_id}"),
+        Action::RollExitZone => "roll_exit_zone".into(),
+        Action::RollExploreD6 => "roll_explore_d6".into(),
+        Action::DrawEvent => "draw_event".into(),
+        Action::ReturnToBase => "return_to_base".into(),
+        Action::FinishBase => "finish_base".into(),
         Action::RollD20Location => "roll_d20_location".into(),
         Action::DrawCcc => "draw_ccc".into(),
         Action::RollD20Hex => "roll_d20_hex".into(),
@@ -190,6 +229,11 @@ pub enum ClientMsg {
     SetReady { ready: bool },
     StartGame,
     StartMission { mission_id: u8 },
+    RollExitZone,
+    RollExploreD6,
+    DrawEvent,
+    ReturnToBase,
+    FinishBase,
     RollD20Location,
     DrawCcc,
     RollD20Hex,
@@ -206,6 +250,11 @@ impl ClientMsg {
             ClientMsg::SetReady { ready } => Action::SetReady { ready },
             ClientMsg::StartGame => Action::StartGame,
             ClientMsg::StartMission { mission_id } => Action::StartMission { mission_id },
+            ClientMsg::RollExitZone => Action::RollExitZone,
+            ClientMsg::RollExploreD6 => Action::RollExploreD6,
+            ClientMsg::DrawEvent => Action::DrawEvent,
+            ClientMsg::ReturnToBase => Action::ReturnToBase,
+            ClientMsg::FinishBase => Action::FinishBase,
             ClientMsg::RollD20Location => Action::RollD20Location,
             ClientMsg::DrawCcc => Action::DrawCcc,
             ClientMsg::RollD20Hex => Action::RollD20Hex,

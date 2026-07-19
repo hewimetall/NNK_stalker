@@ -31,4 +31,13 @@ pub enum DomainError {
     AlreadyPlaying,
     #[error("still in lobby")]
     StillInLobby,
+    #[error("wrong round phase: expected {expected}, got {got}")]
+    WrongRoundPhase {
+        expected: &'static str,
+        got: &'static str,
+    },
+    #[error("no event token here")]
+    NoEventTokenHere,
+    #[error("no unresolved event tokens")]
+    NoEventTokens,
 }

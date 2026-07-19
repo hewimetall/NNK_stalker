@@ -85,7 +85,12 @@ fn spawn_tablet(
         ))
         .with_children(|panel| {
             panel.spawn(text_node(
-                format!("Комната {} · фаза игра", lobby.code),
+                format!(
+                    "Комната {} · раунд {} · {}",
+                    lobby.code,
+                    lobby.round_number,
+                    round_phase_label(&lobby.round_phase)
+                ),
                 18.0,
                 palette::muted(),
                 assets,
@@ -104,18 +109,28 @@ fn spawn_tablet(
             ));
             panel.spawn(text_node(
                 format!(
-                    "Ходит: {} · День {}, {:02}:00 · игроков {}/{}",
+                    "Ходит: {} · День {}, {:02}:00 · игроков {}/{} · жетонов {}",
                     active_name(lobby),
                     lobby.game_day,
                     lobby.game_hour,
                     lobby.player_count,
-                    lobby.max_players
+                    lobby.max_players,
+                    lobby.event_tokens.iter().filter(|t| !t.resolved).count()
                 ),
                 16.0,
                 palette::muted(),
                 assets,
             ));
+            if let Some(last) = &lobby.last_event {
+                panel.spawn(text_node(
+                    format!("Последнее событие: {last}"),
+                    15.0,
+                    palette::accent(),
+                    assets,
+                ));
+            }
             spawn_field_grid(panel, me, lobby, assets);
+            spawn_event_tokens(panel, lobby, assets);
             spawn_action_panel(panel, session, lobby, me, assets);
             panel.spawn(text_node(
                 format!(
@@ -161,6 +176,33 @@ fn spawn_action_panel(
             ..default()
         })
         .with_children(|row| {
+            let acts = &lobby.legal_actions;
+            let busy = session.is_busy();
+
+            // Shared phase buttons (base / return) — not only active player.
+            if acts.iter().any(|a| a == "finish_base") {
+                spawn_button(
+                    row,
+                    "База: закончить раунд",
+                    UiAction::FinishBase,
+                    !busy,
+                    true,
+                    assets,
+                );
+                return;
+            }
+            if acts.iter().any(|a| a == "return_to_base") {
+                spawn_button(
+                    row,
+                    "На базу (жетоны закрыты)",
+                    UiAction::ReturnToBase,
+                    !busy,
+                    true,
+                    assets,
+                );
+                return;
+            }
+
             if !my_turn {
                 spawn_text(
                     row,
@@ -172,10 +214,9 @@ fn spawn_action_panel(
                 return;
             }
 
-            let acts = &lobby.legal_actions;
-            let next = next_dice_action(stage, acts);
+            let next = next_primary_action(stage, acts);
             if let Some((label, action)) = next {
-                spawn_button(row, label, action, !session.is_busy(), true, assets);
+                spawn_button(row, label, action, !busy, true, assets);
                 return;
             }
 
@@ -183,7 +224,7 @@ fn spawn_action_panel(
             if !moves.is_empty() {
                 spawn_text(
                     row,
-                    "Ход: выбери соседний гекс к цели",
+                    "Ход по сектору — выбери гекс",
                     15.0,
                     palette::muted(),
                     assets,
@@ -193,7 +234,7 @@ fn spawn_action_panel(
                         row,
                         format!("→ ({q}, {r})"),
                         UiAction::MoveToken { q, r },
-                        !session.is_busy(),
+                        !busy,
                         true,
                         assets,
                     );
@@ -221,16 +262,36 @@ fn is_my_turn(session: &ClientSession, lobby: &LobbyView) -> bool {
         .unwrap_or(false)
 }
 
-fn next_dice_action(stage: &str, acts: &[String]) -> Option<(&'static str, UiAction)> {
+fn next_primary_action(stage: &str, acts: &[String]) -> Option<(&'static str, UiAction)> {
+    // Пилигрим round first, then mission targeting chain.
+    const PILGRIM: &[(&str, &str, UiAction)] = &[
+        (
+            "roll_exit_zone",
+            "I · Выход в Зону (D20 жетоны)",
+            UiAction::RollExitZone,
+        ),
+        (
+            "roll_explore_d6",
+            "II · D6 ход к жетонам",
+            UiAction::RollExploreD6,
+        ),
+        ("draw_event", "II · Карта события", UiAction::DrawEvent),
+    ];
+    for (wire, label, action) in PILGRIM {
+        if acts.iter().any(|a| a == *wire) {
+            return Some((*label, *action));
+        }
+    }
+
     let candidates: &[(&str, &str, UiAction)] = &[
         (
             "need_location",
-            "1 · Бросить D20: локация",
+            "Миссия · D20 локация",
             UiAction::RollD20Location,
         ),
-        ("need_sector", "2 · Вытянуть ККК: сектор", UiAction::DrawCcc),
-        ("need_hex", "3 · Бросить D20: гекс", UiAction::RollD20Hex),
-        ("need_d6", "4 · Бросить D6: ОД", UiAction::RollD6Move),
+        ("need_sector", "Миссия · ККК сектор", UiAction::DrawCcc),
+        ("need_hex", "Миссия · D20 гекс", UiAction::RollD20Hex),
+        ("need_d6", "Миссия · D6 ОД", UiAction::RollD6Move),
     ];
     for (want_stage, label, action) in candidates {
         let wire = match action {
@@ -244,20 +305,15 @@ fn next_dice_action(stage: &str, acts: &[String]) -> Option<(&'static str, UiAct
             return Some((*label, *action));
         }
     }
-    // Fallback: any dice action present even if stage string mismatches.
     const ORDER: &[(&str, &str, UiAction)] = &[
         (
             "roll_d20_location",
-            "1 · Бросить D20: локация",
+            "Миссия · D20 локация",
             UiAction::RollD20Location,
         ),
-        ("draw_ccc", "2 · Вытянуть ККК: сектор", UiAction::DrawCcc),
-        (
-            "roll_d20_hex",
-            "3 · Бросить D20: гекс",
-            UiAction::RollD20Hex,
-        ),
-        ("roll_d6_move", "4 · Бросить D6: ОД", UiAction::RollD6Move),
+        ("draw_ccc", "Миссия · ККК сектор", UiAction::DrawCcc),
+        ("roll_d20_hex", "Миссия · D20 гекс", UiAction::RollD20Hex),
+        ("roll_d6_move", "Миссия · D6 ОД", UiAction::RollD6Move),
     ];
     for (wire, label, action) in ORDER {
         if acts.iter().any(|a| a == *wire) {
@@ -278,44 +334,66 @@ fn parse_move_actions(acts: &[String]) -> Vec<(i32, i32)> {
 }
 
 fn coach_tip(lobby: &LobbyView, me: Option<&LobbyPlayerView>, my_turn: bool) -> String {
-    if !my_turn {
-        return format!(
-            "Ожидание хода: {}. На второй панели — отряд и журнал, там ничего не «висит».",
-            active_name(lobby)
-        );
-    }
-    let Some(me) = me else {
-        return "Твой ход, но планшет не найден — нажми «Обновить».".into();
-    };
-    match me.travel_stage.as_str() {
-        "need_location" => {
-            "Шаг 1/5 · Нужна локация. Жми большую кнопку «1 · D20 локация» — иначе партия стоит."
+    match lobby.round_phase.as_str() {
+        "exit_zone" => {
+            if my_turn {
+                "Пилигрим · Фаза I «Выход в Зону»: брось D20 — столько жетонов событий ляжет на сектор."
+                    .into()
+            } else {
+                format!(
+                    "Фаза I · ждём, пока {} бросит D20 на жетоны событий.",
+                    active_name(lobby)
+                )
+            }
+        }
+        "explore" => {
+            if !my_turn {
+                return format!(
+                    "Фаза II · ходит {}. Иди к жетонам событий (D6), тяни карты.",
+                    active_name(lobby)
+                );
+            }
+            let Some(me) = me else {
+                return "Твой ход, но планшет не найден — «Обновить».".into();
+            };
+            match me.travel_stage.as_str() {
+                "need_location" | "need_sector" | "need_hex" | "need_d6" | "need_move" => {
+                    format!(
+                        "Миссия (ККК-цепочка) · стадия {}. Параллельно можно исследовать жетоны после Idle.",
+                        stage_label(&me.travel_stage)
+                    )
+                }
+                _ if me.move_points == 0 => {
+                    "Фаза II · брось D6 и двигайся к жёлтым жетонам событий. Наступишь — карта сама."
+                        .into()
+                }
+                _ => format!(
+                    "Фаза II · ОД {}. Выбери гекс ближе к жетону события.",
+                    me.move_points
+                ),
+            }
+        }
+        "return_base" => {
+            "Фаза III «База»: сдай хабар/почини (абстрактно) — жми «База: закончить раунд»."
                 .into()
         }
-        "need_sector" => format!(
-            "Шаг 2/5 · Локация: {}. Жми «2 · ККК сектор».",
-            me.location.as_deref().unwrap_or("-")
-        ),
-        "need_hex" => format!(
-            "Шаг 3/5 · Сектор {}. Жми «3 · D20 гекс» — это цель внутри сектора.",
-            me.sector
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "-".into())
-        ),
-        "need_d6" => format!(
-            "Шаг 4/5 · Цель {}. Жми «4 · D6» — получишь ОД к цели.",
-            me.target_hex
-                .map(|h| coord_label(&h))
-                .unwrap_or_else(|| "-".into())
-        ),
-        "need_move" => format!(
-            "Шаг 5/5 · Иди к цели {}. ОД {}. Выбери соседний гекс кнопкой ниже (карты hexx ещё нет).",
-            me.target_hex
-                .map(|h| coord_label(&h))
-                .unwrap_or_else(|| "-".into()),
-            me.move_points
-        ),
-        other => format!("Стадия: {other}. Смотри доступные действия ниже."),
+        _ => {
+            if !my_turn {
+                format!("Ожидание хода: {}.", active_name(lobby))
+            } else {
+                "Смотри доступные действия ниже (правила Пилигрим v3.0).".into()
+            }
+        }
+    }
+}
+
+fn round_phase_label(phase: &str) -> String {
+    match phase {
+        "exit_zone" => "Выход в Зону".into(),
+        "explore" => "Розыгрыш событий".into(),
+        "return_base" => "База".into(),
+        "" => "лобби".into(),
+        other => other.to_string(),
     }
 }
 
@@ -385,7 +463,46 @@ fn spawn_field_grid(
             );
             field(grid, "Активный", &active_name(lobby), assets);
             field(grid, "Миссия", &format!("{}", lobby.mission_id), assets);
+            field(
+                grid,
+                "НР",
+                &me.map(|p| p.hp.to_string())
+                    .unwrap_or_else(|| "-".into()),
+                assets,
+            );
+            field(
+                grid,
+                "Рубли",
+                &me.map(|p| p.rubles.to_string())
+                    .unwrap_or_else(|| "-".into()),
+                assets,
+            );
+            field(
+                grid,
+                "Артефакты",
+                &me.map(|p| p.artifacts.to_string())
+                    .unwrap_or_else(|| "-".into()),
+                assets,
+            );
         });
+}
+
+fn spawn_event_tokens(parent: &mut ChildBuilder, lobby: &LobbyView, assets: &UiAssets) {
+    let open: Vec<_> = lobby.event_tokens.iter().filter(|t| !t.resolved).collect();
+    if open.is_empty() {
+        return;
+    }
+    let mut line = String::from("Жетоны событий: ");
+    for (i, token) in open.iter().take(12).enumerate() {
+        if i > 0 {
+            line.push_str(" · ");
+        }
+        line.push_str(&format!("#{} {}", token.id, coord_label(&token.hex)));
+    }
+    if open.len() > 12 {
+        line.push_str(" …");
+    }
+    parent.spawn(text_node(line, 14.0, palette::muted(), assets));
 }
 
 fn field(parent: &mut ChildBuilder, label: &str, value: &str, assets: &UiAssets) {
@@ -548,6 +665,7 @@ fn ccc_label(player: Option<&LobbyPlayerView>) -> String {
 
 fn stage_label(stage: &str) -> &str {
     match stage {
+        "idle" => "свободен",
         "need_location" => "нужна локация",
         "need_sector" => "нужен сектор",
         "need_hex" => "нужен гекс",

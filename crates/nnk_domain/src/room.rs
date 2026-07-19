@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CccDeck, GameClock, Npc, PlayerToken, RoomId, RoomPhase, UserId, LOBBY_MAX_PLAYERS,
-    LOBBY_MIN_PLAYERS,
+    CccDeck, EventDeck, EventToken, GameClock, Npc, PlayerToken, RoomId, RoomPhase, RoundPhase,
+    UserId, LOBBY_MAX_PLAYERS, LOBBY_MIN_PLAYERS,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -29,6 +29,19 @@ pub struct RoomState {
     pub ccc_deck: CccDeck,
     #[serde(default)]
     pub npcs: Vec<Npc>,
+    /// Пилигрим: фаза раунда внутри Playing.
+    #[serde(default)]
+    pub round_phase: RoundPhase,
+    #[serde(default = "default_round_number")]
+    pub round_number: u32,
+    #[serde(default)]
+    pub event_tokens: Vec<EventToken>,
+    #[serde(default)]
+    pub event_deck: EventDeck,
+    #[serde(default)]
+    pub last_event: Option<String>,
+    #[serde(default)]
+    pub next_event_token_id: u32,
 }
 
 impl RoomState {
@@ -51,7 +64,21 @@ impl RoomState {
             play_started_unix: GameClock::START.play_started_unix,
             ccc_deck: CccDeck::shuffled(rng_seed),
             npcs: Vec::new(),
+            round_phase: RoundPhase::ExitZone,
+            round_number: 1,
+            event_tokens: Vec::new(),
+            event_deck: EventDeck::shuffled(rng_seed ^ PILGRIM_DECK_SALT),
+            last_event: None,
+            next_event_token_id: 1,
         }
+    }
+
+    pub fn unresolved_event_tokens(&self) -> impl Iterator<Item = &EventToken> {
+        self.event_tokens.iter().filter(|t| !t.resolved)
+    }
+
+    pub fn all_event_tokens_resolved(&self) -> bool {
+        !self.event_tokens.is_empty() && self.event_tokens.iter().all(|t| t.resolved)
     }
 
     pub fn player_count(&self) -> u8 {
@@ -103,6 +130,13 @@ impl RoomState {
 fn default_game_day() -> u32 {
     1
 }
+
+fn default_round_number() -> u32 {
+    1
+}
+
+/// Salt so event-deck shuffle differs from CCC shuffle for the same room seed.
+const PILGRIM_DECK_SALT: u64 = 0x5049_4C47_5249_4D33;
 
 #[cfg(test)]
 mod tests {

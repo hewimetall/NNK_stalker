@@ -28,8 +28,10 @@
 
 ## Domain docs (этот репозиторий)
 
-- `form.md.md` — цель, игромех, ККК, D20 локации
-- `term.md.md` — ГГ, ГМ, гекс, сектор, ККК
+**Canonical rules:** [`docs/pilgrim/`](pilgrim/README.md) — НКИ «S.T.A.L.K.E.R: Пилигрим» v3.0  
+(общие правила, карты событий, сюжетная книга). Всегда решать дизайн в сторону этих файлов.
+
+- `form.md.md` / `term.md.md` — краткие выжимки; при конфликте побеждает `docs/pilgrim/`
 
 ## Optional local mirrors
 

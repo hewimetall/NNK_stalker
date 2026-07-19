@@ -12,6 +12,17 @@ pub enum Action {
     StartMission {
         mission_id: u8,
     },
+    /// Пилигрим фаза I: D20 → жетоны событий на поле.
+    RollExitZone,
+    /// Пилигрим фаза II: D6 очки движения по сектору к жетонам.
+    RollExploreD6,
+    /// Пилигрим фаза II: взять карту события на своём гексе с жетоном.
+    DrawEvent,
+    /// Пилигрим фаза II→III: уйти на базу (когда жетоны кончились / после Выброса).
+    ReturnToBase,
+    /// Пилигрим фаза III: закончить базу → следующий раунд (Выход в Зону).
+    FinishBase,
+    /// Mission targeting chain (ККК + D20 + D6) from general rules.
     RollD20Location,
     DrawCcc,
     RollD20Hex,

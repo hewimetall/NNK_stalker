@@ -3,8 +3,10 @@
 
 mod actions;
 mod engine;
+mod pilgrim;
 mod rng;
 
 pub use actions::*;
 pub use engine::*;
+pub use pilgrim::*;
 pub use rng::*;

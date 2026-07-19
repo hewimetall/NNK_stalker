@@ -1,8 +1,12 @@
 use nnk_domain::{
     CccDeck, DomainError, HexCoord, LocationId, MemberRole, MissionDef, Npc, NpcKind, PlayerToken,
-    RoomId, RoomPhase, RoomState, TurnStage, UserId,
+    RoomId, RoomPhase, RoomState, RoundPhase, TurnStage, UserId,
 };
 
+use crate::pilgrim::{
+    begin_playing_round, finish_base_and_next_round, place_event_tokens, resolve_event_card,
+    token_on_unresolved_event,
+};
 use crate::{Action, GameRng};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,8 +66,41 @@ pub fn legal_actions(state: &RoomState, user_id: UserId, role: MemberRole) -> Ve
         }
         RoomPhase::Playing => {
             if let Some(token) = state.find_token(user_id) {
-                if state.active_user_id == Some(user_id) {
+                let is_active = state.active_user_id == Some(user_id);
+                match state.round_phase {
+                    RoundPhase::ExitZone => {
+                        if is_active {
+                            actions.push(Action::RollExitZone);
+                        }
+                    }
+                    RoundPhase::Explore => {
+                        if is_active {
+                            if token_on_unresolved_event(state, user_id).is_some() {
+                                actions.push(Action::DrawEvent);
+                            } else if token.travel_stage == TurnStage::Idle {
+                                if token.move_points == 0 {
+                                    actions.push(Action::RollExploreD6);
+                                } else {
+                                    for to in nnk_domain::sector_hexes() {
+                                        if can_move(token.hex, to, token.move_points) {
+                                            actions.push(Action::MoveToken { to });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if state.all_event_tokens_resolved() {
+                            actions.push(Action::ReturnToBase);
+                        }
+                    }
+                    RoundPhase::ReturnBase => {
+                        actions.push(Action::FinishBase);
+                    }
+                }
+                // Mission targeting (ККК chain) — available when stalker is mid-mission path.
+                if is_active {
                     match token.travel_stage {
+                        TurnStage::Idle => {}
                         TurnStage::NeedLocation => actions.push(Action::RollD20Location),
                         TurnStage::NeedSector => actions.push(Action::DrawCcc),
                         TurnStage::NeedHex => actions.push(Action::RollD20Hex),
@@ -95,6 +132,7 @@ pub fn legal_actions(state: &RoomState, user_id: UserId, role: MemberRole) -> Ve
                     name: "NPC".into(),
                     kind: NpcKind::Stalker,
                 });
+                actions.push(Action::StartMission { mission_id: 1 });
             }
         }
     }
@@ -153,17 +191,12 @@ pub fn step(
             next.play_started_unix = nnk_domain::GameClock::START.play_started_unix;
             next.ccc_deck = CccDeck::shuffled(next.rng_seed);
             next.npcs.clear();
-            for token in &mut next.tokens {
-                token.location = None;
-                token.sector = None;
-                token.ccc_tens = None;
-                token.ccc_units = None;
-                token.hex = HexCoord::ZERO;
-                token.target_hex = None;
-                token.move_points = 0;
-                token.travel_stage = TurnStage::NeedLocation;
-            }
+            next.round_number = 1;
+            begin_playing_round(&mut next);
             let ev = format!("game_started:{have}");
+            next.history.push(ev.clone());
+            events.push(ev);
+            let ev = format!("round:{}:{}", next.round_number, next.round_phase.wire_id());
             next.history.push(ev.clone());
             events.push(ev);
         }
@@ -175,7 +208,121 @@ pub fn step(
             let mission =
                 MissionDef::get(mission_id).ok_or(DomainError::InvalidMissionId(mission_id))?;
             next.mission_id = mission_id;
+            if let Some(active) = next.active_user_id {
+                if let Some(token) = next.find_token_mut(active) {
+                    token.travel_stage = TurnStage::NeedLocation;
+                    token.move_points = 0;
+                    token.target_hex = None;
+                }
+            }
             let ev = format!("mission_started:{mission_id}:{}", mission.title);
+            next.history.push(ev.clone());
+            events.push(ev);
+        }
+        Action::RollExitZone => {
+            require_playing(&next)?;
+            ensure_player(&next, user_id)?;
+            ensure_active_player(&next, user_id)?;
+            if next.round_phase != RoundPhase::ExitZone {
+                return Err(DomainError::WrongRoundPhase {
+                    expected: RoundPhase::ExitZone.wire_id(),
+                    got: next.round_phase.wire_id(),
+                });
+            }
+            let count = rng.d20();
+            let placed = place_event_tokens(&mut next, &mut rng, count)?;
+            let ev = format!("exit_zone_d20:{count}:tokens:{}", placed.len());
+            next.history.push(ev.clone());
+            events.push(ev);
+            let ev = format!("phase:{}", next.round_phase.wire_id());
+            next.history.push(ev.clone());
+            events.push(ev);
+        }
+        Action::RollExploreD6 => {
+            require_playing(&next)?;
+            ensure_player(&next, user_id)?;
+            ensure_active_player(&next, user_id)?;
+            if next.round_phase != RoundPhase::Explore {
+                return Err(DomainError::WrongRoundPhase {
+                    expected: RoundPhase::Explore.wire_id(),
+                    got: next.round_phase.wire_id(),
+                });
+            }
+            ensure_stage(&next, user_id, TurnStage::Idle, "roll_explore_d6")?;
+            let value = rng.d6();
+            let token = next.find_token_mut(user_id).unwrap();
+            token.move_points = value;
+            let ev = format!("explore_d6:{value}:{}", user_id.0);
+            next.history.push(ev.clone());
+            events.push(ev);
+        }
+        Action::DrawEvent => {
+            require_playing(&next)?;
+            ensure_player(&next, user_id)?;
+            ensure_active_player(&next, user_id)?;
+            if next.round_phase != RoundPhase::Explore {
+                return Err(DomainError::WrongRoundPhase {
+                    expected: RoundPhase::Explore.wire_id(),
+                    got: next.round_phase.wire_id(),
+                });
+            }
+            let Some(token_id) = token_on_unresolved_event(&next, user_id) else {
+                return Err(DomainError::NoEventTokenHere);
+            };
+            let card = next.event_deck.draw_one();
+            let resolved = resolve_event_card(&mut next, &mut rng, user_id, card, token_id);
+            for ev in resolved {
+                next.history.push(ev.clone());
+                events.push(ev);
+            }
+            if let Some(token) = next.find_token_mut(user_id) {
+                token.move_points = 0;
+                token.travel_stage = TurnStage::Idle;
+            }
+            advance_turn(&mut next, user_id);
+        }
+        Action::ReturnToBase => {
+            require_playing(&next)?;
+            ensure_player(&next, user_id)?;
+            if next.round_phase != RoundPhase::Explore {
+                return Err(DomainError::WrongRoundPhase {
+                    expected: RoundPhase::Explore.wire_id(),
+                    got: next.round_phase.wire_id(),
+                });
+            }
+            if !next.all_event_tokens_resolved() && next.event_tokens.is_empty() {
+                return Err(DomainError::NoEventTokens);
+            }
+            if !next.all_event_tokens_resolved() {
+                return Err(DomainError::NoEventTokens);
+            }
+            next.round_phase = RoundPhase::ReturnBase;
+            let ev = String::from("phase:return_base");
+            next.history.push(ev.clone());
+            events.push(ev);
+        }
+        Action::FinishBase => {
+            require_playing(&next)?;
+            ensure_player(&next, user_id)?;
+            if next.round_phase != RoundPhase::ReturnBase {
+                return Err(DomainError::WrongRoundPhase {
+                    expected: RoundPhase::ReturnBase.wire_id(),
+                    got: next.round_phase.wire_id(),
+                });
+            }
+            // Base: sell loot abstractly — +rubles already from events; heal a bit.
+            for token in &mut next.tokens {
+                token.hp = (token.hp + 10).min(120);
+                token.move_points = 0;
+                token.travel_stage = TurnStage::Idle;
+            }
+            finish_base_and_next_round(&mut next);
+            next.active_user_id = next.tokens.first().map(|t| t.user_id);
+            let ev = format!(
+                "base_done:round:{}:phase:{}",
+                next.round_number,
+                next.round_phase.wire_id()
+            );
             next.history.push(ev.clone());
             events.push(ev);
         }
@@ -284,7 +431,6 @@ pub fn step(
         Action::MoveToken { to } => {
             require_playing(&next)?;
             ensure_active_player(&next, user_id)?;
-            ensure_stage(&next, user_id, TurnStage::NeedMove, "move_token")?;
             if !nnk_domain::is_sector_hex(to) {
                 return Err(DomainError::IllegalMove {
                     distance: u32::MAX,
@@ -294,40 +440,71 @@ pub fn step(
             let token = next.find_token(user_id).ok_or(DomainError::UnknownPlayer)?;
             let from = token.hex;
             let points = token.move_points;
-            let target = token.target_hex.ok_or(DomainError::IllegalStage {
-                expected: "roll_d20_hex",
-                got: "move_token",
-            })?;
+            let stage = token.travel_stage;
+            let target = token.target_hex;
             let distance = from.distance(to);
             if distance == 0 || distance > u32::from(points) {
                 return Err(DomainError::IllegalMove { distance, points });
             }
-            let before_target_distance = from.distance(target);
-            let after_target_distance = to.distance(target);
-            // Must strictly approach target — equal-distance side-steps caused bot ping-pong.
-            if after_target_distance >= before_target_distance && to != target {
-                return Err(DomainError::IllegalMove { distance, points });
-            }
-            let arrived = to == target;
-            let remaining = points.saturating_sub(distance as u8);
-            let token = next.find_token_mut(user_id).unwrap();
-            token.hex = to;
-            token.move_points = remaining;
-            token.travel_stage = if arrived {
-                TurnStage::NeedLocation
-            } else if remaining == 0 {
-                TurnStage::NeedD6
-            } else {
-                TurnStage::NeedMove
-            };
-            let ev = format!("moved:{}:{from:?}->{to:?}", user_id.0);
-            next.history.push(ev.clone());
-            events.push(ev);
-            if arrived {
-                let ev = format!("arrived:{}:{},{}", user_id.0, to.q, to.r);
+
+            // Explore free movement (Пилигрим фаза II) vs mission approach.
+            if stage == TurnStage::Idle && next.round_phase == RoundPhase::Explore {
+                let remaining = points.saturating_sub(distance as u8);
+                let token = next.find_token_mut(user_id).unwrap();
+                token.hex = to;
+                token.move_points = remaining;
+                let ev = format!("explore_moved:{}:{from:?}->{to:?}", user_id.0);
                 next.history.push(ev.clone());
                 events.push(ev);
-                finish_travel_and_turn(&mut next, user_id);
+                if token_on_unresolved_event(&next, user_id).is_some() {
+                    // Auto-draw event on landing — core Пилигрим loop.
+                    let token_id = token_on_unresolved_event(&next, user_id).unwrap();
+                    let card = next.event_deck.draw_one();
+                    let resolved =
+                        resolve_event_card(&mut next, &mut rng, user_id, card, token_id);
+                    for ev in resolved {
+                        next.history.push(ev.clone());
+                        events.push(ev);
+                    }
+                    if let Some(token) = next.find_token_mut(user_id) {
+                        token.move_points = 0;
+                    }
+                    advance_turn(&mut next, user_id);
+                } else if remaining == 0 {
+                    advance_turn(&mut next, user_id);
+                }
+            } else {
+                ensure_stage(&next, user_id, TurnStage::NeedMove, "move_token")?;
+                let target = target.ok_or(DomainError::IllegalStage {
+                    expected: "roll_d20_hex",
+                    got: "move_token",
+                })?;
+                let before_target_distance = from.distance(target);
+                let after_target_distance = to.distance(target);
+                if after_target_distance >= before_target_distance && to != target {
+                    return Err(DomainError::IllegalMove { distance, points });
+                }
+                let arrived = to == target;
+                let remaining = points.saturating_sub(distance as u8);
+                let token = next.find_token_mut(user_id).unwrap();
+                token.hex = to;
+                token.move_points = remaining;
+                token.travel_stage = if arrived {
+                    TurnStage::Idle
+                } else if remaining == 0 {
+                    TurnStage::NeedD6
+                } else {
+                    TurnStage::NeedMove
+                };
+                let ev = format!("moved:{}:{from:?}->{to:?}", user_id.0);
+                next.history.push(ev.clone());
+                events.push(ev);
+                if arrived {
+                    let ev = format!("arrived:{}:{},{}", user_id.0, to.q, to.r);
+                    next.history.push(ev.clone());
+                    events.push(ev);
+                    finish_travel_and_turn(&mut next, user_id);
+                }
             }
         }
         Action::SpawnNpc { name, kind } => {
@@ -415,6 +592,7 @@ fn ensure_stage(
 
 fn stage_action_name(stage: TurnStage) -> &'static str {
     match stage {
+        TurnStage::Idle => "idle",
         TurnStage::NeedLocation => "roll_d20_location",
         TurnStage::NeedSector => "draw_ccc",
         TurnStage::NeedHex => "roll_d20_hex",
@@ -427,7 +605,7 @@ fn finish_travel_and_turn(state: &mut RoomState, user_id: UserId) {
     if let Some(token) = state.find_token_mut(user_id) {
         token.target_hex = None;
         token.move_points = 0;
-        token.travel_stage = TurnStage::NeedLocation;
+        token.travel_stage = TurnStage::Idle;
     }
     state.advance_clock_after_travel_resolution();
     advance_turn(state, user_id);
@@ -527,9 +705,18 @@ mod tests {
 
     fn start_playing(state: RoomState, gm: UserId) -> RoomState {
         let state = fill_lobby_ready(state, gm);
-        step(state, gm, MemberRole::Gm, Action::StartGame)
+        let state = step(state, gm, MemberRole::Gm, Action::StartGame)
             .unwrap()
-            .state
+            .state;
+        // Mission targeting (ККК chain) is a sub-loop; Пилигрим round starts at ExitZone.
+        step(
+            state,
+            gm,
+            MemberRole::Gm,
+            Action::StartMission { mission_id: 1 },
+        )
+        .unwrap()
+        .state
     }
 
     fn advance_to_hex_stage(state: RoomState, user_id: UserId) -> RoomState {
@@ -823,7 +1010,7 @@ mod tests {
         assert_eq!(out.state.tokens[0].hex, HexCoord::new(0, 0));
         assert_eq!(out.state.tokens[0].move_points, 0);
         assert_eq!(out.state.tokens[0].target_hex, None);
-        assert_eq!(out.state.tokens[0].travel_stage, TurnStage::NeedLocation);
+        assert_eq!(out.state.tokens[0].travel_stage, TurnStage::Idle);
         assert_ne!(out.state.active_user_id, Some(gm));
     }
 
@@ -967,7 +1154,7 @@ mod tests {
         let acts = legal_actions(&s, gm, MemberRole::Gm);
         assert!(acts.iter().any(|a| matches!(a, Action::MoveToken { .. })));
         assert!(!acts.iter().any(|a| matches!(a, Action::RollD20Location)));
-        assert!(!acts
+        assert!(acts
             .iter()
             .any(|a| matches!(a, Action::StartMission { .. })));
         assert!(acts.iter().any(|a| matches!(a, Action::Chat { .. })));
@@ -1035,10 +1222,27 @@ mod tests {
 
         assert_eq!(out.state.tokens[0].hex, HexCoord::new(1, 0));
         assert_eq!(out.state.tokens[0].target_hex, None);
-        assert_eq!(out.state.tokens[0].travel_stage, TurnStage::NeedLocation);
+        assert_eq!(out.state.tokens[0].travel_stage, TurnStage::Idle);
         assert_eq!(out.state.game_day, 2);
         assert_eq!(out.state.game_hour, 1);
         assert_ne!(out.state.active_user_id, Some(gm));
+    }
+
+    #[test]
+    fn pilgrim_exit_zone_places_event_tokens() {
+        let (s, gm) = setup();
+        let state = fill_lobby_ready(s, gm);
+        let state = step(state, gm, MemberRole::Gm, Action::StartGame)
+            .unwrap()
+            .state;
+        assert_eq!(state.round_phase, RoundPhase::ExitZone);
+        let out = step(state, gm, MemberRole::Player, Action::RollExitZone).unwrap();
+        assert_eq!(out.state.round_phase, RoundPhase::Explore);
+        assert!(!out.state.event_tokens.is_empty());
+        assert!(out
+            .events
+            .iter()
+            .any(|e| e.starts_with("exit_zone_d20:")));
     }
 
     #[test]
@@ -1071,5 +1275,19 @@ mod tests {
         let (s, _) = setup();
         let s = add_player(s, PlayerToken::new(UserId::new(), "x"));
         assert_eq!(s.player_count(), 2);
+    }
+
+    #[test]
+    fn start_mission_sets_need_location_on_active() {
+        let (s, gm) = setup();
+        let s = start_playing(s, gm);
+        let stage = s.find_token(gm).unwrap().travel_stage;
+        assert_eq!(
+            stage,
+            TurnStage::NeedLocation,
+            "active={:?} gm={:?}",
+            s.active_user_id,
+            gm
+        );
     }
 }

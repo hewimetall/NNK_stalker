@@ -5,6 +5,8 @@ use crate::{HexCoord, LocationId, UserId};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TurnStage {
+    /// Exploring the zone / between mission-targeting steps (Пилигрим фаза II).
+    Idle,
     NeedLocation,
     NeedSector,
     NeedHex,
@@ -29,6 +31,13 @@ pub struct PlayerToken {
     pub move_points: u8,
     #[serde(default)]
     pub travel_stage: TurnStage,
+    /// Hit points (Пилигрим НР); default leather-jacket starter.
+    #[serde(default = "default_hp")]
+    pub hp: u16,
+    #[serde(default)]
+    pub rubles: u32,
+    #[serde(default)]
+    pub artifacts: u8,
 }
 
 impl PlayerToken {
@@ -44,15 +53,22 @@ impl PlayerToken {
             hex: HexCoord::ZERO,
             target_hex: None,
             move_points: 0,
-            travel_stage: TurnStage::NeedLocation,
+            travel_stage: TurnStage::Idle,
+            hp: default_hp(),
+            rubles: 0,
+            artifacts: 0,
         }
     }
 }
 
 impl Default for TurnStage {
     fn default() -> Self {
-        Self::NeedLocation
+        Self::Idle
     }
+}
+
+fn default_hp() -> u16 {
+    100
 }
 
 #[cfg(test)]
@@ -66,7 +82,8 @@ mod tests {
         assert_eq!(t.hex, HexCoord::ZERO);
         assert!(t.target_hex.is_none());
         assert_eq!(t.move_points, 0);
-        assert_eq!(t.travel_stage, TurnStage::NeedLocation);
+        assert_eq!(t.travel_stage, TurnStage::Idle);
+        assert_eq!(t.hp, 100);
         assert!(t.location.is_none());
         assert!(t.ccc_tens.is_none());
         assert!(t.ccc_units.is_none());
