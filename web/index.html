@@ -70,6 +70,7 @@
       border-left: 3px solid var(--accent);
       background: rgba(196,163,90,.08);
       font-size: 1rem; line-height: 1.35;
+      white-space: pre-wrap;
       animation: coachIn .45s ease-out;
     }
     @keyframes coachIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
@@ -198,9 +199,11 @@
 
   <script>
     const TIMEOUT_MS = 12000;
+    // Keep this exact order in sync with crates/nnk_domain/src/sector.rs::sector_hexes().
     const SECTOR = [
-      [0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1],
-      [2,0],[2,-1],[2,-2],[1,-2],[0,-2],[-1,-1],[-2,0],[-2,1],[-2,2],[-1,2],[0,2],[1,1]
+      [0,-2],[1,-2],[2,-2],[-1,-1],[0,-1],[1,-1],[2,-1],
+      [-2,0],[-1,0],[0,0],[1,0],[2,0],[-2,1],[-1,1],[0,1],[1,1],
+      [-2,2],[-1,2],[0,2]
     ];
     const state = {
       token: localStorage.getItem('nnk_token') || '',
@@ -262,6 +265,59 @@
     function escapeHtml(s) {
       return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     }
+    function sectorHasHex(hex) {
+      return !!hex && SECTOR.some(([q, r]) => hex.q === q && hex.r === r);
+    }
+    function invisibleTokenWarning(lobby) {
+      return (lobby.players || []).some(p => p.hex && !sectorHasHex(p.hex))
+        ? 'Фишка вне видимого сектора — баг/ход вне поля'
+        : '';
+    }
+    function lastCoordLabel(line) {
+      const raw = String(line);
+      const debugMatches = [...raw.matchAll(/q:\s*(-?\d+),\s*r:\s*(-?\d+)/g)];
+      if (debugMatches.length) {
+        const m = debugMatches[debugMatches.length - 1];
+        return `(${m[1]},${m[2]})`;
+      }
+      const pairMatches = [...raw.matchAll(/(-?\d+)\s*,\s*(-?\d+)/g)];
+      if (pairMatches.length) {
+        const m = pairMatches[pairMatches.length - 1];
+        return `(${m[1]},${m[2]})`;
+      }
+      return '';
+    }
+    function formatHistoryLine(line) {
+      const raw = String(line);
+      if (raw.startsWith('game_started')) return 'Игра началась';
+
+      let m = raw.match(/^d20_location:(\d+):(.+):[0-9a-f-]{32,36}$/i);
+      if (m) return `D20 локация: ${m[2]} (${m[1]})`;
+      if (raw.startsWith('d20_location:')) {
+        const parts = raw.split(':');
+        if (parts.length >= 3) return `D20 локация: ${parts[2]} (${parts[1]})`;
+      }
+
+      if (raw.startsWith('ccc:')) {
+        const sector = raw.split(':')[1] || '?';
+        return `ККК: сектор ${sector}`;
+      }
+
+      if (raw.startsWith('d20_hex:')) {
+        const coord = lastCoordLabel(raw);
+        return coord ? `D20 гекс: ${coord}` : raw;
+      }
+
+      m = raw.match(/^d6_move:(\d+)/);
+      if (m) return `D6: ${m[1]} ОД`;
+
+      if (raw.startsWith('moved:')) {
+        const coord = lastCoordLabel(raw.includes('->') ? raw.split('->').pop() : raw);
+        return coord ? `Ход на ${coord}` : raw;
+      }
+
+      return raw;
+    }
     function showLogin() {
       $('authPanel').classList.remove('hidden');
       $('lobbyPanel').classList.add('hidden');
@@ -305,6 +361,18 @@
         return `ОД ${me.move_points}. Кликни зелёный гекс. Карта — поле локации из дампа.`;
       }
       return `Ты на (${me.hex.q},${me.hex.r}) · ${me.location} · сектор ${me.sector}. Можно снова кинуть кости или ждать группу.`;
+    }
+    function nextCoachAction(lobby) {
+      const me = mePlayer(lobby);
+      if (!me || lobby.phase !== 'playing') return null;
+      const acts = lobby.legal_actions || [];
+      const canMove = acts.some(a => a.startsWith('move_token:'));
+      if (!me.location) return 'roll_d20_location';
+      if (me.sector == null) return 'draw_ccc';
+      if (!historyHas(lobby, 'd20_hex:', me.user_id)) return 'roll_d20_hex';
+      if (canMove && me.move_points > 0) return null;
+      if (!historyHas(lobby, 'd6_move:', me.user_id) || me.move_points === 0) return 'roll_d6_move';
+      return null;
     }
 
     function axialDist(a, b) {
@@ -369,31 +437,20 @@
       const order = ['roll_d20_location', 'draw_ccc', 'roll_d20_hex', 'roll_d6_move'];
       const acts = lobby.legal_actions || [];
       const playActs = order.filter(a => acts.includes(a));
-      if (!playActs.length && lobby.phase === 'playing') {
-        row.innerHTML = '<span class="hint">Нет кнопок хода — кликай гекс или обнови.</span>';
-      }
-      const me = mePlayer(lobby);
-      const nextKey = !me ? null
-        : !me.location ? 'roll_d20_location'
-        : me.sector == null ? 'draw_ccc'
-        : !historyHas(lobby, 'd20_hex:', me.user_id) ? 'roll_d20_hex'
-        : 'roll_d6_move';
-
-      for (const a of playActs) {
+      const nextKey = nextCoachAction(lobby);
+      if (nextKey && playActs.includes(nextKey)) {
         const b = document.createElement('button');
         b.type = 'button';
-        b.className = a === nextKey ? 'primary' : '';
-        b.textContent = labels[a] || a;
-        b.onclick = () => doAction({ type: a });
+        b.className = 'primary';
+        b.textContent = labels[nextKey] || nextKey;
+        b.onclick = () => doAction({ type: nextKey });
         row.appendChild(b);
+      } else if (lobby.phase === 'playing') {
+        const hasMove = acts.some(a => a.startsWith('move_token:'));
+        row.innerHTML = `<span class="hint">${hasMove ? 'Кликни подсвеченный гекс на карте.' : 'Нет кнопок хода — обнови состояние.'}</span>`;
       }
-      if (acts.some(x => x.startsWith('start_mission:'))) {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.textContent = 'Миссия 1';
-        b.onclick = () => doAction({ type: 'start_mission', mission_id: 1 });
-        row.appendChild(b);
-      }
+      // TODO: Show a small GM-only mission control (mission id 1..10) when mission content exists.
+      // For now start_mission is intentionally hidden to avoid exposing the placeholder "Миссия 1".
     }
 
     function renderLobby(lobby) {
@@ -420,7 +477,7 @@
       if (playing) {
         $('playCode').textContent = lobby.code;
         $('playMission').textContent = lobby.mission_id;
-        $('playCoach').textContent = coachText(lobby);
+        $('playCoach').textContent = [coachText(lobby), invisibleTokenWarning(lobby)].filter(Boolean).join('\n');
         const me = mePlayer(lobby);
         if (me && me.sector != null) {
           $('cccCaption').textContent = `ККК → сектор ${me.sector}` + (me.location ? ` · ${me.location}` : '');
@@ -431,10 +488,10 @@
             <div style="flex:1">
               <strong>${escapeHtml(p.display_name)}</strong>
               ${p.is_gm ? '<span class="badge gm">ГМ</span>' : ''}
-              <div class="hint">${p.location || '—'} · сектор ${p.sector ?? '—'} · гекс (${p.hex.q},${p.hex.r}) · ОД ${p.move_points}</div>
+              <div class="hint">${p.location || '—'} · сектор ${p.sector ?? '—'} · гекс (${p.hex.q},${p.hex.r})${sectorHasHex(p.hex) ? '' : ' · вне видимого сектора'} · ОД ${p.move_points}</div>
             </div>
           </div>`).join('');
-        $('playLog').innerHTML = (lobby.history || []).slice().reverse().map(h => `<div>${escapeHtml(h)}</div>`).join('');
+        $('playLog').innerHTML = (lobby.history || []).slice().reverse().map(h => `<div>${escapeHtml(formatHistoryLine(h))}</div>`).join('');
         renderActions(lobby);
         requestAnimationFrame(() => renderHexBoard(lobby));
       }
