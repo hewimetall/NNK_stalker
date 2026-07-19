@@ -1,7 +1,7 @@
 use nnk_domain::{
-    CccDraw, DiceKind, HexCoord, LocationId, MemberRole, RoomState, UserId,
+    CccDraw, DiceKind, HexCoord, LocationId, MemberRole, RoomState, TurnStage, UserId,
 };
-use nnk_rules::{Action, legal_actions};
+use nnk_rules::{legal_actions, Action};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -36,6 +36,8 @@ pub struct LobbyView {
     pub player_count: u8,
     pub can_start: bool,
     pub mission_id: u8,
+    pub active_user_id: Option<Uuid>,
+    pub active_display_name: Option<String>,
     pub players: Vec<LobbyPlayerView>,
     pub history: Vec<String>,
     /// Snake_case action ids for the requesting user (empty if unknown).
@@ -52,6 +54,7 @@ pub struct LobbyPlayerView {
     pub sector: Option<u8>,
     pub hex: HexCoord,
     pub move_points: u8,
+    pub travel_stage: String,
 }
 
 impl LobbyView {
@@ -59,11 +62,7 @@ impl LobbyView {
         Self::from_state_for(state, None, MemberRole::Player)
     }
 
-    pub fn from_state_for(
-        state: &RoomState,
-        viewer: Option<UserId>,
-        role: MemberRole,
-    ) -> Self {
+    pub fn from_state_for(state: &RoomState, viewer: Option<UserId>, role: MemberRole) -> Self {
         let legal = viewer
             .map(|uid| {
                 legal_actions(state, uid, role)
@@ -90,6 +89,11 @@ impl LobbyView {
             player_count: state.player_count(),
             can_start: state.can_start(),
             mission_id: state.mission_id,
+            active_user_id: state.active_user_id.map(|id| id.0),
+            active_display_name: state
+                .active_user_id
+                .and_then(|id| state.find_token(id))
+                .map(|t| t.display_name.clone()),
             players: state
                 .tokens
                 .iter()
@@ -102,11 +106,22 @@ impl LobbyView {
                     sector: t.sector,
                     hex: t.hex,
                     move_points: t.move_points,
+                    travel_stage: travel_stage_wire_id(t.travel_stage).into(),
                 })
                 .collect(),
             history,
             legal_actions: legal,
         }
+    }
+}
+
+fn travel_stage_wire_id(stage: TurnStage) -> &'static str {
+    match stage {
+        TurnStage::NeedLocation => "need_location",
+        TurnStage::NeedSector => "need_sector",
+        TurnStage::NeedHex => "need_hex",
+        TurnStage::NeedD6 => "need_d6",
+        TurnStage::NeedMove => "need_move",
     }
 }
 

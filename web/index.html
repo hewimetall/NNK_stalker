@@ -69,9 +69,29 @@
       margin: 10px 0 14px; padding: 12px 14px;
       border-left: 3px solid var(--accent);
       background: rgba(196,163,90,.08);
-      font-size: 1rem; line-height: 1.35;
+      font-size: 1.05rem; line-height: 1.35;
       white-space: pre-wrap;
       animation: coachIn .45s ease-out;
+    }
+    .result-banner {
+      margin: 0 0 14px; padding: 12px 14px;
+      border: 1px solid rgba(196,163,90,.55);
+      background: rgba(196,163,90,.14);
+      font-weight: 600;
+    }
+    .cta-primary {
+      width: 100%;
+      min-height: 58px;
+      font-size: 1.08rem;
+      font-weight: 600;
+      text-align: left;
+    }
+    .wait-note {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      background: rgba(0,0,0,.18);
+      color: var(--muted);
     }
     @keyframes coachIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
     .play-grid {
@@ -173,6 +193,7 @@
         <button type="button" class="ghost" id="btnRefreshPlay">Обновить</button>
       </div>
       <div class="coach" id="playCoach">Ждите старта…</div>
+      <div class="result-banner hidden" id="resultBanner"></div>
       <div class="play-grid">
         <div>
           <div class="hexboard" id="hexBoard" aria-label="Игровое поле локации"></div>
@@ -288,36 +309,69 @@
       }
       return '';
     }
-    function formatHistoryLine(line) {
+    function formatHistoryLine(line, lobby) {
       const raw = String(line);
-      if (raw.startsWith('game_started')) return 'Игра началась';
+      if (raw === 'room_created') return 'Комната создана';
 
-      let m = raw.match(/^d20_location:(\d+):(.+):[0-9a-f-]{32,36}$/i);
-      if (m) return `D20 локация: ${m[2]} (${m[1]})`;
+      let m = raw.match(/^player_joined:(.+)$/);
+      if (m) return `Игрок вошёл: ${m[1]}`;
+
+      m = raw.match(/^ready:([0-9a-f-]{32,36}):(true|false)$/i);
+      if (m) return `${playerNameById(lobby, m[1])}: ${m[2] === 'true' ? 'готов' : 'не готов'}`;
+
+      m = raw.match(/^game_started:(\d+)/);
+      if (m) return `Игра началась: игроков ${m[1]}`;
+
+      m = raw.match(/^mission_started:(\d+)/);
+      if (m) return `Миссия выбрана: ${m[1]}`;
+
+      m = raw.match(/^d20_location_reroll:(\d+)/);
+      if (m) return `D20 локация: выпало ${m[1]}, переброс`;
+
+      m = raw.match(/^d20_location:(\d+):(.+):([0-9a-f-]{32,36})$/i);
+      if (m) return `${playerNameById(lobby, m[3])}: D20 локация ${m[1]} → ${m[2]}`;
       if (raw.startsWith('d20_location:')) {
         const parts = raw.split(':');
         if (parts.length >= 3) return `D20 локация: ${parts[2]} (${parts[1]})`;
       }
 
-      if (raw.startsWith('ccc:')) {
-        const sector = raw.split(':')[1] || '?';
-        return `ККК: сектор ${sector}`;
-      }
+      m = raw.match(/^ccc:(\d+):(\d+):(\d+):([0-9a-f-]{32,36})$/i);
+      if (m) return `${playerNameById(lobby, m[4])}: ККК ${m[1]}+${m[2]} → сектор ${m[3]}`;
 
-      if (raw.startsWith('d20_hex:')) {
-        const coord = lastCoordLabel(raw);
-        return coord ? `D20 гекс: ${coord}` : raw;
-      }
+      m = raw.match(/^d20_hex:(\d+):([0-9a-f-]{32,36}):(-?\d+),(-?\d+)$/i);
+      if (m) return `${playerNameById(lobby, m[2])}: D20 гекс ${m[1]} → #${hexNumberByCoord(m[3], m[4])} (${m[3]},${m[4]})`;
 
-      m = raw.match(/^d6_move:(\d+)/);
-      if (m) return `D6: ${m[1]} ОД`;
+      m = raw.match(/^d6_move:(\d+):([0-9a-f-]{32,36})$/i);
+      if (m) return `${playerNameById(lobby, m[2])}: D6 ход ${m[1]} ОД`;
 
-      if (raw.startsWith('moved:')) {
+      m = raw.match(/^moved:([0-9a-f-]{32,36}):(.+)$/i);
+      if (m) {
         const coord = lastCoordLabel(raw.includes('->') ? raw.split('->').pop() : raw);
-        return coord ? `Ход на ${coord}` : raw;
+        return coord ? `${playerNameById(lobby, m[1])}: перешёл на ${coord}` : `${playerNameById(lobby, m[1])}: сделал ход`;
       }
+
+      m = raw.match(/^chat:([0-9a-f-]{32,36}):(.*)$/i);
+      if (m) return `${playerNameById(lobby, m[1])}: ${m[2]}`;
 
       return raw;
+    }
+    function resultBannerText(lobby) {
+      const history = (lobby.history || []).slice().reverse();
+      for (const line of history) {
+        const raw = String(line);
+        let m = raw.match(/^d20_location:(\d+):(.+):([0-9a-f-]{32,36})$/i);
+        if (m) return `Результат: ${playerNameById(lobby, m[3])} бросил D20=${m[1]} — локация «${m[2]}».`;
+
+        m = raw.match(/^ccc:(\d+):(\d+):(\d+):([0-9a-f-]{32,36})$/i);
+        if (m) return `Результат: ${playerNameById(lobby, m[4])} вытянул ККК ${m[1]}+${m[2]} — сектор ${m[3]}.`;
+
+        m = raw.match(/^d20_hex:(\d+):([0-9a-f-]{32,36}):(-?\d+),(-?\d+)$/i);
+        if (m) return `Результат: ${playerNameById(lobby, m[2])} бросил D20=${m[1]} — гекс #${hexNumberByCoord(m[3], m[4])} (${m[3]},${m[4]}).`;
+
+        m = raw.match(/^d6_move:(\d+):([0-9a-f-]{32,36})$/i);
+        if (m) return `Результат: ${playerNameById(lobby, m[2])} бросил D6=${m[1]} — ${m[1]} ОД для движения.`;
+      }
+      return '';
     }
     function showLogin() {
       $('authPanel').classList.remove('hidden');
@@ -334,45 +388,95 @@
     }
 
     function mePlayer(lobby) {
-      return (lobby.players || []).find(p => state.user && p.user_id === state.user.user_id) || null;
+      return (lobby.players || []).find(p => state.user && sameUserId(p.user_id, state.user.user_id)) || null;
+    }
+    function sameUserId(a, b) {
+      return !!a && !!b && String(a).toLowerCase() === String(b).toLowerCase();
+    }
+    function activePlayer(lobby) {
+      const activeId = lobby.active_user_id;
+      return (lobby.players || []).find(p => sameUserId(p.user_id, activeId)) || null;
+    }
+    function activeName(lobby) {
+      const active = activePlayer(lobby);
+      return (active && active.display_name) || lobby.active_display_name || 'игрок';
+    }
+    function isMyTurn(lobby) {
+      return !!(state.user && sameUserId(lobby.active_user_id, state.user.user_id));
+    }
+    function playerNameById(lobby, userId) {
+      const p = (lobby.players || []).find(player => sameUserId(player.user_id, userId));
+      return (p && p.display_name) || 'Игрок';
+    }
+    function hexNumberByCoord(q, r) {
+      const idx = SECTOR.findIndex(([sq, sr]) => Number(q) === sq && Number(r) === sr);
+      return idx >= 0 ? idx + 1 : '?';
     }
     function historyHas(lobby, prefix, userId) {
       return (lobby.history || []).some(h => h.startsWith(prefix) && h.includes(userId));
     }
+    function currentStage(lobby, me) {
+      if (me && me.travel_stage) return me.travel_stage;
+      if (!me.location) return 'need_location';
+      if (me.sector == null) return 'need_sector';
+      if (!historyHas(lobby, 'd20_hex:', me.user_id)) return 'need_hex';
+      if (!historyHas(lobby, 'd6_move:', me.user_id) || me.move_points === 0) return 'need_d6';
+      return 'need_move';
+    }
+    function stageLabel(stage) {
+      return ({
+        need_location: 'нужна локация',
+        need_sector: 'нужен сектор',
+        need_hex: 'нужен гекс',
+        need_d6: 'нужен D6',
+        need_move: 'движение',
+      })[stage] || 'ход';
+    }
     function coachText(lobby) {
       const me = mePlayer(lobby);
       if (!me) return 'Вы не в партии — перезайдите по коду.';
-      const uid = me.user_id;
-      if (!me.location) {
-        return 'Шаг 1/4 · Нажми «D20 локация» — куда идём по Зоне (form.md).';
+      if (lobby.phase === 'playing' && !lobby.active_user_id) {
+        return 'Игра идёт, но сервер не отдал активного игрока — нажми «Обновить».';
       }
-      if (me.sector == null) {
-        return `Шаг 2/4 · Локация: ${me.location}. Нажми «ККК сектор» — карта из колоды координат.`;
+      if (lobby.phase === 'playing' && !isMyTurn(lobby)) {
+        return `Сейчас ходит ${activeName(lobby)} — жди.\nТвои кнопки появятся здесь автоматически, когда ход дойдёт до тебя.`;
       }
-      if (!historyHas(lobby, 'd20_hex:', uid)) {
-        return `Шаг 3/4 · Сектор ${me.sector}. Нажми «D20 гекс» — клетка внутри сектора (19 гексов).`;
+      const turnPrefix = lobby.phase === 'playing'
+        ? `СЕЙЧАС ТВОЙ ХОД, ${me.display_name}.\n`
+        : '';
+      const stage = currentStage(lobby, me);
+      if (stage === 'need_location') {
+        return `${turnPrefix}Шаг 1/4 · Нажми большую кнопку «1 · D20 локация» — узнаем, куда идём по Зоне.`;
       }
-      if (!historyHas(lobby, 'd6_move:', uid) || (me.move_points === 0 && !(lobby.legal_actions || []).some(a => a.startsWith('move_token:')))) {
+      if (stage === 'need_sector') {
+        return `${turnPrefix}Шаг 2/4 · Локация: ${me.location}. Нажми «2 · ККК сектор» — тянем карту координат.`;
+      }
+      if (stage === 'need_hex') {
+        return `${turnPrefix}Шаг 3/4 · Сектор ${me.sector}. Нажми «3 · D20 гекс» — выбираем клетку внутри сектора (1–19).`;
+      }
+      if (stage === 'need_d6') {
+        return `${turnPrefix}Шаг 4/4 · Нажми «4 · D6 ход» — узнаем, сколько гексов можешь пройти.`;
+      }
+      if (stage === 'need_move') {
         if ((lobby.legal_actions || []).some(a => a.startsWith('move_token:'))) {
-          return `Шаг 4/4 · ОД ${me.move_points}. Кликни подсвеченный гекс на карте — иди к цели.`;
+          return `${turnPrefix}Шаг 4/4 · У тебя ${me.move_points} ОД. Кликни подсвеченный зелёный гекс на карте.`;
         }
-        return 'Шаг 4/4 · Нажми «D6 ход» — сколько гексов можешь пройти.';
+        return `${turnPrefix}Движение недоступно: ОД ${me.move_points}. Нажми «Обновить», если зелёных гексов нет.`;
       }
-      if ((lobby.legal_actions || []).some(a => a.startsWith('move_token:'))) {
-        return `ОД ${me.move_points}. Кликни зелёный гекс. Карта — поле локации из дампа.`;
-      }
-      return `Ты на (${me.hex.q},${me.hex.r}) · ${me.location} · сектор ${me.sector}. Можно снова кинуть кости или ждать группу.`;
+      return `${turnPrefix}Ты на (${me.hex.q},${me.hex.r}) · ${me.location} · сектор ${me.sector}. Заверши ход движением или обнови состояние.`;
     }
     function nextCoachAction(lobby) {
       const me = mePlayer(lobby);
       if (!me || lobby.phase !== 'playing') return null;
+      if (!isMyTurn(lobby)) return null;
       const acts = lobby.legal_actions || [];
       const canMove = acts.some(a => a.startsWith('move_token:'));
-      if (!me.location) return 'roll_d20_location';
-      if (me.sector == null) return 'draw_ccc';
-      if (!historyHas(lobby, 'd20_hex:', me.user_id)) return 'roll_d20_hex';
-      if (canMove && me.move_points > 0) return null;
-      if (!historyHas(lobby, 'd6_move:', me.user_id) || me.move_points === 0) return 'roll_d6_move';
+      const stage = currentStage(lobby, me);
+      if (stage === 'need_location') return 'roll_d20_location';
+      if (stage === 'need_sector') return 'draw_ccc';
+      if (stage === 'need_hex') return 'roll_d20_hex';
+      if (stage === 'need_move' && canMove && me.move_points > 0) return null;
+      if (stage === 'need_d6') return 'roll_d6_move';
       return null;
     }
 
@@ -429,26 +533,30 @@
       const row = $('actionRow');
       row.innerHTML = '';
       const labels = {
-        roll_d20_location: '1 · D20 локация',
-        draw_ccc: '2 · ККК сектор',
-        roll_d20_hex: '3 · D20 гекс',
-        roll_d6_move: '4 · D6 ход',
+        roll_d20_location: '1 · Бросить D20: локация',
+        draw_ccc: '2 · Вытянуть ККК: сектор',
+        roll_d20_hex: '3 · Бросить D20: гекс',
+        roll_d6_move: '4 · Бросить D6: очки движения',
         start_game: 'Старт',
       };
       const order = ['roll_d20_location', 'draw_ccc', 'roll_d20_hex', 'roll_d6_move'];
       const acts = lobby.legal_actions || [];
+      if (lobby.phase === 'playing' && !isMyTurn(lobby)) {
+        row.innerHTML = `<div class="wait-note">Сейчас ходит <strong>${escapeHtml(activeName(lobby))}</strong> — жди. Когда будет твой ход, здесь появится одна большая кнопка.</div>`;
+        return;
+      }
       const playActs = order.filter(a => acts.includes(a));
       const nextKey = nextCoachAction(lobby);
       if (nextKey && playActs.includes(nextKey)) {
         const b = document.createElement('button');
         b.type = 'button';
-        b.className = 'primary';
+        b.className = 'primary cta-primary';
         b.textContent = labels[nextKey] || nextKey;
         b.onclick = () => doAction({ type: nextKey });
         row.appendChild(b);
       } else if (lobby.phase === 'playing') {
         const hasMove = acts.some(a => a.startsWith('move_token:'));
-        row.innerHTML = `<span class="hint">${hasMove ? 'Кликни подсвеченный гекс на карте.' : 'Нет кнопок хода — обнови состояние.'}</span>`;
+        row.innerHTML = `<div class="wait-note">${hasMove ? 'Кликни подсвеченный зелёный гекс на карте — это и есть кнопка движения.' : `Сейчас ходит ${escapeHtml(activeName(lobby))}. Если это ты и кнопок нет — нажми «Обновить».`}</div>`;
       }
       // TODO: Show a small GM-only mission control (mission id 1..10) when mission content exists.
       // For now start_mission is intentionally hidden to avoid exposing the placeholder "Миссия 1".
@@ -465,20 +573,23 @@
 
       const readyCount = lobby.players.filter(p => p.ready).length;
       $('lobbyMeta').innerHTML =
-        `Комната <code>${lobby.code}</code> · фаза <strong>${lobby.phase}</strong> · ` +
-        `${lobby.player_count}/${lobby.max_players} · ready ${readyCount}/${lobby.player_count}`;
+        `Комната <code>${lobby.code}</code> · фаза <strong>${lobby.phase === 'playing' ? 'игра' : 'лобби'}</strong> · ` +
+        `${lobby.player_count}/${lobby.max_players} · готово ${readyCount}/${lobby.player_count}`;
       $('seats').innerHTML = lobby.players.map(p => `
         <div class="seat">
           <div><strong>${escapeHtml(p.display_name)}</strong> ${p.is_gm ? '<span class="badge gm">ГМ</span>' : ''}</div>
-          <span class="badge ${p.ready ? 'ready' : ''}">${p.ready ? 'ready' : 'wait'}</span>
+          <span class="badge ${p.ready ? 'ready' : ''}">${p.ready ? 'готов' : 'ждём'}</span>
         </div>`).join('');
       if (state.inflight === 0) $('btnStart').disabled = !lobby.can_start;
       $('lobbyErr').textContent = playing ? '' : $('lobbyErr').textContent;
 
       if (playing) {
         $('playCode').textContent = lobby.code;
-        $('playMission').textContent = lobby.mission_id;
+        $('playMission').textContent = `${lobby.mission_id} · ходит ${activeName(lobby)}`;
         $('playCoach').textContent = [coachText(lobby), invisibleTokenWarning(lobby)].filter(Boolean).join('\n');
+        const banner = resultBannerText(lobby);
+        $('resultBanner').textContent = banner;
+        $('resultBanner').classList.toggle('hidden', !banner);
         const me = mePlayer(lobby);
         if (me && me.sector != null) {
           $('cccCaption').textContent = `ККК → сектор ${me.sector}` + (me.location ? ` · ${me.location}` : '');
@@ -489,10 +600,11 @@
             <div style="flex:1">
               <strong>${escapeHtml(p.display_name)}</strong>
               ${p.is_gm ? '<span class="badge gm">ГМ</span>' : ''}
-              <div class="hint">${p.location || '—'} · сектор ${p.sector ?? '—'} · гекс (${p.hex.q},${p.hex.r})${sectorHasHex(p.hex) ? '' : ' · вне видимого сектора'} · ОД ${p.move_points}</div>
+              ${sameUserId(p.user_id, lobby.active_user_id) ? '<span class="badge ready">ходит</span>' : ''}
+              <div class="hint">${p.location || '—'} · сектор ${p.sector ?? '—'} · гекс (${p.hex.q},${p.hex.r})${sectorHasHex(p.hex) ? '' : ' · вне видимого сектора'} · ОД ${p.move_points} · ${stageLabel(p.travel_stage)}</div>
             </div>
           </div>`).join('');
-        $('playLog').innerHTML = (lobby.history || []).slice().reverse().map(h => `<div>${escapeHtml(formatHistoryLine(h))}</div>`).join('');
+        $('playLog').innerHTML = (lobby.history || []).slice().reverse().map(h => `<div>${escapeHtml(formatHistoryLine(h, lobby))}</div>`).join('');
         renderActions(lobby);
         requestAnimationFrame(() => renderHexBoard(lobby));
       }
