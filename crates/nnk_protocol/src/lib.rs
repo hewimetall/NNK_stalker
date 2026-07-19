@@ -1,5 +1,6 @@
 use nnk_domain::{
-    CccDraw, DiceKind, HexCoord, LocationId, MemberRole, RoomState, TurnStage, UserId,
+    CccDraw, DiceKind, HexCoord, LocationId, MemberRole, MissionDef, NpcKind, RoomState, TurnStage,
+    UserId,
 };
 use nnk_rules::{legal_actions, Action};
 use serde::{Deserialize, Serialize};
@@ -36,9 +37,15 @@ pub struct LobbyView {
     pub player_count: u8,
     pub can_start: bool,
     pub mission_id: u8,
+    pub mission_title: String,
+    pub mission_objective: String,
+    pub mission_briefing: String,
+    pub game_day: u32,
+    pub game_hour: u8,
     pub active_user_id: Option<Uuid>,
     pub active_display_name: Option<String>,
     pub players: Vec<LobbyPlayerView>,
+    pub npcs: Vec<LobbyNpcView>,
     pub history: Vec<String>,
     /// Snake_case action ids for the requesting user (empty if unknown).
     pub legal_actions: Vec<String>,
@@ -52,9 +59,19 @@ pub struct LobbyPlayerView {
     pub is_gm: bool,
     pub location: Option<String>,
     pub sector: Option<u8>,
+    pub ccc_tens: Option<u8>,
+    pub ccc_units: Option<u8>,
     pub hex: HexCoord,
+    pub target_hex: Option<HexCoord>,
     pub move_points: u8,
     pub travel_stage: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LobbyNpcView {
+    pub name: String,
+    pub kind: String,
+    pub hex: HexCoord,
 }
 
 impl LobbyView {
@@ -78,6 +95,8 @@ impl LobbyView {
             .skip(hist_len.saturating_sub(16))
             .cloned()
             .collect();
+        let mission = MissionDef::get(state.mission_id)
+            .unwrap_or_else(|| MissionDef::get(1).expect("mission catalog must include mission 1"));
         Self {
             code: state.code.clone(),
             phase: match state.phase {
@@ -89,6 +108,11 @@ impl LobbyView {
             player_count: state.player_count(),
             can_start: state.can_start(),
             mission_id: state.mission_id,
+            mission_title: mission.title.to_string(),
+            mission_objective: mission.objective.to_string(),
+            mission_briefing: mission.briefing.to_string(),
+            game_day: state.game_day,
+            game_hour: state.game_hour,
             active_user_id: state.active_user_id.map(|id| id.0),
             active_display_name: state
                 .active_user_id
@@ -104,9 +128,21 @@ impl LobbyView {
                     is_gm: t.user_id == state.gm_user_id,
                     location: t.location.map(|l| l.name_ru().to_string()),
                     sector: t.sector,
+                    ccc_tens: t.ccc_tens,
+                    ccc_units: t.ccc_units,
                     hex: t.hex,
+                    target_hex: t.target_hex,
                     move_points: t.move_points,
                     travel_stage: travel_stage_wire_id(t.travel_stage).into(),
+                })
+                .collect(),
+            npcs: state
+                .npcs
+                .iter()
+                .map(|npc| LobbyNpcView {
+                    name: npc.name.clone(),
+                    kind: npc_kind_wire_id(npc.kind).into(),
+                    hex: npc.hex,
                 })
                 .collect(),
             history,
@@ -135,8 +171,16 @@ fn action_wire_id(action: Action) -> Option<String> {
         Action::RollD20Hex => "roll_d20_hex".into(),
         Action::RollD6Move => "roll_d6_move".into(),
         Action::MoveToken { to } => format!("move_token:{},{}", to.q, to.r),
+        Action::SpawnNpc { .. } => "spawn_npc".into(),
         Action::Chat { .. } => return None,
     })
+}
+
+fn npc_kind_wire_id(kind: NpcKind) -> &'static str {
+    match kind {
+        NpcKind::Stalker => "stalker",
+        NpcKind::Mutant => "mutant",
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -151,6 +195,7 @@ pub enum ClientMsg {
     RollD20Hex,
     RollD6Move,
     MoveToken { to: HexCoord },
+    SpawnNpc { name: String, kind: NpcKind },
     Chat { text: String },
 }
 
@@ -166,6 +211,7 @@ impl ClientMsg {
             ClientMsg::RollD20Hex => Action::RollD20Hex,
             ClientMsg::RollD6Move => Action::RollD6Move,
             ClientMsg::MoveToken { to } => Action::MoveToken { to },
+            ClientMsg::SpawnNpc { name, kind } => Action::SpawnNpc { name, kind },
             ClientMsg::Chat { text } => Action::Chat { text },
         })
     }
@@ -223,6 +269,14 @@ mod tests {
             ClientMsg::StartGame.into_action(),
             Some(Action::StartGame)
         ));
+        assert!(matches!(
+            ClientMsg::SpawnNpc {
+                name: "Guide".into(),
+                kind: NpcKind::Stalker,
+            }
+            .into_action(),
+            Some(Action::SpawnNpc { .. })
+        ));
         assert!(ClientMsg::JoinRoom { code: "X".into() }
             .into_action()
             .is_none());
@@ -231,13 +285,44 @@ mod tests {
     #[test]
     fn lobby_view_from_state() {
         let gm = UserId::new();
-        let state = RoomState::new(RoomId::new(), "ABC".into(), PlayerToken::new(gm, "gm"), 1);
+        let mut state = RoomState::new(RoomId::new(), "ABC".into(), PlayerToken::new(gm, "gm"), 1);
+        state.mission_id = 3;
+        state.game_day = 2;
+        state.game_hour = 14;
+        state.tokens[0].location = Some(LocationId::Cordon);
+        state.tokens[0].sector = Some(36);
+        state.tokens[0].ccc_tens = Some(30);
+        state.tokens[0].ccc_units = Some(6);
+        state.tokens[0].target_hex = Some(HexCoord::new(1, 0));
+        state.npcs.push(nnk_domain::Npc::new(
+            "Guide",
+            NpcKind::Stalker,
+            gm,
+            HexCoord::ZERO,
+        ));
         let view = LobbyView::from_state(&state);
         assert_eq!(view.phase, "lobby");
         assert_eq!(view.max_players, 5);
         assert_eq!(view.players.len(), 1);
         assert!(view.players[0].is_gm);
-        assert_eq!(view.mission_id, 1);
+        assert_eq!(view.mission_id, 3);
+        assert_eq!(view.mission_title, MissionDef::get(3).unwrap().title);
+        assert_eq!(
+            view.mission_objective,
+            MissionDef::get(3).unwrap().objective
+        );
+        assert_eq!(view.mission_briefing, MissionDef::get(3).unwrap().briefing);
+        assert_eq!(view.game_day, 2);
+        assert_eq!(view.game_hour, 14);
+        assert_eq!(view.players[0].location.as_deref(), Some("Кордон"));
+        assert_eq!(view.players[0].sector, Some(36));
+        assert_eq!(view.players[0].ccc_tens, Some(30));
+        assert_eq!(view.players[0].ccc_units, Some(6));
+        assert_eq!(view.players[0].target_hex, Some(HexCoord::new(1, 0)));
+        assert_eq!(view.npcs.len(), 1);
+        assert_eq!(view.npcs[0].name, "Guide");
+        assert_eq!(view.npcs[0].kind, "stalker");
+        assert_eq!(view.npcs[0].hex, HexCoord::ZERO);
     }
 
     #[test]

@@ -19,7 +19,13 @@ pub struct PlayerToken {
     pub ready: bool,
     pub location: Option<LocationId>,
     pub sector: Option<u8>,
+    #[serde(default)]
+    pub ccc_tens: Option<u8>,
+    #[serde(default)]
+    pub ccc_units: Option<u8>,
     pub hex: HexCoord,
+    #[serde(default)]
+    pub target_hex: Option<HexCoord>,
     pub move_points: u8,
     #[serde(default)]
     pub travel_stage: TurnStage,
@@ -33,7 +39,10 @@ impl PlayerToken {
             ready: false,
             location: None,
             sector: None,
+            ccc_tens: None,
+            ccc_units: None,
             hex: HexCoord::ZERO,
+            target_hex: None,
             move_points: 0,
             travel_stage: TurnStage::NeedLocation,
         }
@@ -55,8 +64,11 @@ mod tests {
         let id = UserId::new();
         let t = PlayerToken::new(id, "ГГ");
         assert_eq!(t.hex, HexCoord::ZERO);
+        assert!(t.target_hex.is_none());
         assert_eq!(t.move_points, 0);
         assert_eq!(t.travel_stage, TurnStage::NeedLocation);
         assert!(t.location.is_none());
+        assert!(t.ccc_tens.is_none());
+        assert!(t.ccc_units.is_none());
     }
 }

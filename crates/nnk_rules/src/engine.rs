@@ -1,6 +1,6 @@
 use nnk_domain::{
-    CccDraw, DomainError, HexCoord, LocationId, MemberRole, PlayerToken, RoomId, RoomPhase,
-    RoomState, TurnStage, UserId,
+    CccDeck, DomainError, HexCoord, LocationId, MemberRole, MissionDef, Npc, PlayerToken, RoomId,
+    RoomPhase, RoomState, TurnStage, UserId,
 };
 
 use crate::{Action, GameRng};
@@ -70,9 +70,16 @@ pub fn legal_actions(state: &RoomState, user_id: UserId, role: MemberRole) -> Ve
                         TurnStage::NeedD6 => actions.push(Action::RollD6Move),
                         TurnStage::NeedMove => {
                             if token.move_points > 0 {
-                                for to in nnk_domain::sector_hexes() {
-                                    if can_move(token.hex, to, token.move_points) {
-                                        actions.push(Action::MoveToken { to });
+                                if let Some(target) = token.target_hex {
+                                    for to in nnk_domain::sector_hexes() {
+                                        if can_move_toward_target(
+                                            token.hex,
+                                            to,
+                                            token.move_points,
+                                            target,
+                                        ) {
+                                            actions.push(Action::MoveToken { to });
+                                        }
                                     }
                                 }
                             }
@@ -135,10 +142,18 @@ pub fn step(
             }
             next.phase = RoomPhase::Playing;
             next.active_user_id = next.tokens.first().map(|t| t.user_id);
+            next.game_day = nnk_domain::GameClock::START.game_day;
+            next.game_hour = nnk_domain::GameClock::START.game_hour;
+            next.play_started_unix = nnk_domain::GameClock::START.play_started_unix;
+            next.ccc_deck = CccDeck::shuffled(next.rng_seed);
+            next.npcs.clear();
             for token in &mut next.tokens {
                 token.location = None;
                 token.sector = None;
+                token.ccc_tens = None;
+                token.ccc_units = None;
                 token.hex = HexCoord::ZERO;
+                token.target_hex = None;
                 token.move_points = 0;
                 token.travel_stage = TurnStage::NeedLocation;
             }
@@ -151,11 +166,10 @@ pub fn step(
             if role != MemberRole::Gm {
                 return Err(DomainError::Forbidden("only GM can start missions"));
             }
-            if !(1..=10).contains(&mission_id) {
-                return Err(DomainError::InvalidMissionId(mission_id));
-            }
+            let mission =
+                MissionDef::get(mission_id).ok_or(DomainError::InvalidMissionId(mission_id))?;
             next.mission_id = mission_id;
-            let ev = format!("mission_started:{mission_id}");
+            let ev = format!("mission_started:{mission_id}:{}", mission.title);
             next.history.push(ev.clone());
             events.push(ev);
         }
@@ -189,12 +203,16 @@ pub fn step(
             ensure_player(&next, user_id)?;
             ensure_active_player(&next, user_id)?;
             ensure_stage(&next, user_id, TurnStage::NeedSector, "draw_ccc")?;
-            let (tens, units) = rng.ccc_parts();
-            let draw = CccDraw::combine(tens, units)?;
+            let draw = next.ccc_deck.draw_ccc()?;
             let token = next.find_token_mut(user_id).unwrap();
             token.sector = Some(draw.sector);
+            token.ccc_tens = Some(draw.tens);
+            token.ccc_units = Some(draw.units);
             token.travel_stage = TurnStage::NeedHex;
-            let ev = format!("ccc:{tens}:{units}:{}:{}", draw.sector, user_id.0);
+            let ev = format!(
+                "ccc:{}:{}:{}:{}",
+                draw.tens, draw.units, draw.sector, user_id.0
+            );
             next.history.push(ev.clone());
             events.push(ev);
         }
@@ -205,7 +223,7 @@ pub fn step(
             ensure_stage(&next, user_id, TurnStage::NeedHex, "roll_d20_hex")?;
             let (value, hex) = roll_sector_hex(&mut rng)?;
             let token = next.find_token_mut(user_id).unwrap();
-            token.hex = hex;
+            token.target_hex = Some(hex);
             token.move_points = 0;
             token.travel_stage = TurnStage::NeedD6;
             let ev = format!("d20_hex:{value}:{}:{},{}", user_id.0, hex.q, hex.r);
@@ -218,19 +236,43 @@ pub fn step(
             ensure_active_player(&next, user_id)?;
             ensure_stage(&next, user_id, TurnStage::NeedD6, "roll_d6_move")?;
             let value = rng.d6();
+            let arrived_without_move = {
+                let token = next.find_token(user_id).ok_or(DomainError::UnknownPlayer)?;
+                let target = token.target_hex.ok_or(DomainError::IllegalStage {
+                    expected: "roll_d20_hex",
+                    got: "roll_d6_move",
+                })?;
+                token.hex == target
+            };
             let has_legal_move = {
                 let token = next.find_token_mut(user_id).unwrap();
                 token.move_points = value;
                 token.travel_stage = TurnStage::NeedMove;
-                nnk_domain::sector_hexes()
-                    .into_iter()
-                    .any(|to| can_move(token.hex, to, token.move_points))
+                token
+                    .target_hex
+                    .map(|target| {
+                        nnk_domain::sector_hexes().into_iter().any(|to| {
+                            can_move_toward_target(token.hex, to, token.move_points, target)
+                        })
+                    })
+                    .unwrap_or(false)
             };
             let ev = format!("d6_move:{value}:{}", user_id.0);
             next.history.push(ev.clone());
             events.push(ev);
-            if !has_legal_move {
-                finish_turn(&mut next, user_id);
+            if arrived_without_move {
+                let ev = format!(
+                    "arrived:{}:{:?}",
+                    user_id.0,
+                    next.find_token(user_id).unwrap().hex
+                );
+                next.history.push(ev.clone());
+                events.push(ev);
+                finish_travel_and_turn(&mut next, user_id);
+            } else if !has_legal_move {
+                let token = next.find_token_mut(user_id).unwrap();
+                token.move_points = 0;
+                token.travel_stage = TurnStage::NeedD6;
             }
         }
         Action::MoveToken { to } => {
@@ -246,18 +288,61 @@ pub fn step(
             let token = next.find_token(user_id).ok_or(DomainError::UnknownPlayer)?;
             let from = token.hex;
             let points = token.move_points;
+            let target = token.target_hex.ok_or(DomainError::IllegalStage {
+                expected: "roll_d20_hex",
+                got: "move_token",
+            })?;
             let distance = from.distance(to);
             if distance == 0 || distance > u32::from(points) {
                 return Err(DomainError::IllegalMove { distance, points });
             }
+            let before_target_distance = from.distance(target);
+            let after_target_distance = to.distance(target);
+            if after_target_distance > before_target_distance {
+                return Err(DomainError::IllegalMove { distance, points });
+            }
+            let arrived = to == target;
             let token = next.find_token_mut(user_id).unwrap();
             token.hex = to;
             token.move_points = 0;
-            token.travel_stage = TurnStage::NeedLocation;
+            token.travel_stage = if arrived {
+                TurnStage::NeedLocation
+            } else {
+                TurnStage::NeedD6
+            };
             let ev = format!("moved:{}:{from:?}->{to:?}", user_id.0);
             next.history.push(ev.clone());
             events.push(ev);
-            finish_turn(&mut next, user_id);
+            if arrived {
+                let ev = format!("arrived:{}:{},{}", user_id.0, to.q, to.r);
+                next.history.push(ev.clone());
+                events.push(ev);
+                finish_travel_and_turn(&mut next, user_id);
+            }
+        }
+        Action::SpawnNpc { name, kind } => {
+            require_playing(&next)?;
+            if role != MemberRole::Gm {
+                return Err(DomainError::Forbidden("only GM can spawn NPCs"));
+            }
+            let active = next
+                .active_user_id
+                .and_then(|active| next.find_token(active))
+                .or_else(|| next.tokens.first());
+            let mut npc = Npc::new(
+                non_empty_trimmed(&name, "NPC", 80),
+                kind,
+                next.gm_user_id,
+                HexCoord::ZERO,
+            );
+            if let Some(token) = active {
+                npc.location = token.location;
+                npc.sector = token.sector;
+            }
+            let ev = format!("npc_spawned:{}:{:?}", npc.name, npc.kind);
+            next.npcs.push(npc);
+            next.history.push(ev.clone());
+            events.push(ev);
         }
         Action::Chat { text } => {
             ensure_player(&next, user_id)?;
@@ -328,15 +413,21 @@ fn stage_action_name(stage: TurnStage) -> &'static str {
     }
 }
 
-fn finish_turn(state: &mut RoomState, user_id: UserId) {
+fn finish_travel_and_turn(state: &mut RoomState, user_id: UserId) {
+    if let Some(token) = state.find_token_mut(user_id) {
+        token.target_hex = None;
+        token.move_points = 0;
+        token.travel_stage = TurnStage::NeedLocation;
+    }
+    state.advance_clock_after_travel_resolution();
+    advance_turn(state, user_id);
+}
+
+fn advance_turn(state: &mut RoomState, user_id: UserId) {
     let Some(idx) = state.tokens.iter().position(|t| t.user_id == user_id) else {
         state.active_user_id = None;
         return;
     };
-    if let Some(token) = state.tokens.get_mut(idx) {
-        token.move_points = 0;
-        token.travel_stage = TurnStage::NeedLocation;
-    }
     if state.tokens.is_empty() {
         state.active_user_id = None;
         return;
@@ -369,6 +460,24 @@ fn roll_sector_hex(rng: &mut GameRng) -> Result<(u8, HexCoord), DomainError> {
 pub fn can_move(from: HexCoord, to: HexCoord, move_points: u8) -> bool {
     let d = from.distance(to);
     d > 0 && d <= u32::from(move_points) && nnk_domain::is_sector_hex(to)
+}
+
+pub fn can_move_toward_target(
+    from: HexCoord,
+    to: HexCoord,
+    move_points: u8,
+    target: HexCoord,
+) -> bool {
+    can_move(from, to, move_points) && to.distance(target) <= from.distance(target)
+}
+
+fn non_empty_trimmed(value: &str, fallback: &str, max_chars: usize) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        fallback.to_string()
+    } else {
+        trimmed.chars().take(max_chars).collect()
+    }
 }
 
 #[cfg(test)]
@@ -545,6 +654,12 @@ mod tests {
         )
         .unwrap();
         assert_eq!(out.state.mission_id, 3);
+        assert!(out
+            .state
+            .history
+            .last()
+            .unwrap()
+            .contains(nnk_domain::MissionDef::get(3).unwrap().title));
         let err = step(
             s.clone(),
             gm,
@@ -602,14 +717,23 @@ mod tests {
         let points = out.state.tokens[0].move_points;
         assert!((1..=6).contains(&points));
         let from = out.state.tokens[0].hex;
+        let target = out.state.tokens[0].target_hex.unwrap();
         let to = nnk_domain::sector_hexes()
             .into_iter()
-            .find(|to| can_move(from, *to, points))
+            .find(|to| can_move_toward_target(from, *to, points, target))
             .unwrap();
+        let reaches_target = to == target;
         let out = step(out.state, gm, MemberRole::Player, Action::MoveToken { to }).unwrap();
         assert_eq!(out.state.tokens[0].hex, to);
         assert_eq!(out.state.tokens[0].move_points, 0);
-        assert_ne!(out.state.active_user_id, Some(gm));
+        if reaches_target {
+            assert_eq!(out.state.tokens[0].target_hex, None);
+            assert_ne!(out.state.active_user_id, Some(gm));
+        } else {
+            assert_eq!(out.state.tokens[0].target_hex, Some(target));
+            assert_eq!(out.state.tokens[0].travel_stage, TurnStage::NeedD6);
+            assert_eq!(out.state.active_user_id, Some(gm));
+        }
     }
 
     #[test]
@@ -621,9 +745,25 @@ mod tests {
         let out = step(out.state, gm, MemberRole::Player, Action::DrawCcc).unwrap();
         let sector = out.state.tokens[0].sector.unwrap();
         assert!((1..=100).contains(&sector));
+        assert!(out.state.tokens[0].ccc_tens.is_some());
+        assert!(out.state.tokens[0].ccc_units.is_some());
+        assert_eq!(out.state.ccc_deck.tens.len(), 9);
+        assert_eq!(out.state.ccc_deck.units.len(), 9);
         let last = out.state.history.last().unwrap();
         assert!(last.starts_with("ccc:"));
         assert_eq!(last.split(':').count(), 5);
+    }
+
+    #[test]
+    fn d20_hex_sets_target_without_moving_current_hex() {
+        let (s, gm) = setup();
+        let s = start_playing(s, gm);
+        let s = advance_to_hex_stage(s, gm);
+        let current = s.tokens[0].hex;
+        let out = step(s, gm, MemberRole::Player, Action::RollD20Hex).unwrap();
+        assert_eq!(out.state.tokens[0].hex, current);
+        assert!(out.state.tokens[0].target_hex.is_some());
+        assert_eq!(out.state.tokens[0].travel_stage, TurnStage::NeedD6);
     }
 
     #[test]
@@ -725,6 +865,8 @@ mod tests {
         let (s, gm) = setup();
         let mut s = start_playing(s, gm);
         s.tokens[0].travel_stage = TurnStage::NeedMove;
+        s.tokens[0].hex = HexCoord::ZERO;
+        s.tokens[0].target_hex = Some(HexCoord::new(1, 0));
         s.tokens[0].move_points = 2;
         let acts = legal_actions(&s, gm, MemberRole::Gm);
         assert!(acts.iter().any(|a| matches!(a, Action::MoveToken { .. })));
@@ -742,6 +884,7 @@ mod tests {
         let token = s.find_token_mut(gm).unwrap();
         token.travel_stage = TurnStage::NeedMove;
         token.hex = HexCoord::new(0, -2);
+        token.target_hex = Some(HexCoord::new(0, 2));
         token.move_points = 4;
 
         let acts = legal_actions(&s, gm, MemberRole::Player);
@@ -758,6 +901,73 @@ mod tests {
             .iter()
             .all(|to| HexCoord::new(0, -2).distance(*to) <= 4));
         assert!(!moves.contains(&HexCoord::new(3, -2)));
+    }
+
+    #[test]
+    fn legal_move_list_empty_without_target() {
+        let (s, gm) = setup();
+        let mut s = start_playing(s, gm);
+        s.tokens[0].travel_stage = TurnStage::NeedMove;
+        s.tokens[0].move_points = 4;
+        s.tokens[0].target_hex = None;
+
+        let acts = legal_actions(&s, gm, MemberRole::Player);
+        assert!(!acts.iter().any(|a| matches!(a, Action::MoveToken { .. })));
+    }
+
+    #[test]
+    fn arrival_clears_target_advances_clock_and_turn() {
+        let (s, gm) = setup();
+        let mut s = start_playing(s, gm);
+        s.game_day = 1;
+        s.game_hour = 23;
+        let token = s.find_token_mut(gm).unwrap();
+        token.travel_stage = TurnStage::NeedMove;
+        token.hex = HexCoord::ZERO;
+        token.target_hex = Some(HexCoord::new(1, 0));
+        token.move_points = 1;
+
+        let out = step(
+            s,
+            gm,
+            MemberRole::Player,
+            Action::MoveToken {
+                to: HexCoord::new(1, 0),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(out.state.tokens[0].hex, HexCoord::new(1, 0));
+        assert_eq!(out.state.tokens[0].target_hex, None);
+        assert_eq!(out.state.tokens[0].travel_stage, TurnStage::NeedLocation);
+        assert_eq!(out.state.game_day, 2);
+        assert_eq!(out.state.game_hour, 1);
+        assert_ne!(out.state.active_user_id, Some(gm));
+    }
+
+    #[test]
+    fn gm_can_spawn_npc_at_active_location_center() {
+        let (s, gm) = setup();
+        let mut s = start_playing(s, gm);
+        s.tokens[0].location = Some(LocationId::Cordon);
+        s.tokens[0].sector = Some(36);
+
+        let out = step(
+            s,
+            gm,
+            MemberRole::Gm,
+            Action::SpawnNpc {
+                name: "Guide".into(),
+                kind: nnk_domain::NpcKind::Stalker,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(out.state.npcs.len(), 1);
+        assert_eq!(out.state.npcs[0].name, "Guide");
+        assert_eq!(out.state.npcs[0].hex, HexCoord::ZERO);
+        assert_eq!(out.state.npcs[0].location, Some(LocationId::Cordon));
+        assert_eq!(out.state.npcs[0].sector, Some(36));
     }
 
     #[test]
