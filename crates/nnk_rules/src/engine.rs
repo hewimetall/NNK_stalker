@@ -788,7 +788,7 @@ mod tests {
     }
 
     #[test]
-    fn multi_step_d6_spends_points_until_arrival() {
+    fn multi_step_od_spend_keeps_need_move_when_remaining_gt_zero() {
         let (s, gm) = setup();
         let mut s = start_playing(s, gm);
         let token = s.find_token_mut(gm).unwrap();
@@ -1012,7 +1012,7 @@ mod tests {
     }
 
     #[test]
-    fn arrival_clears_target_advances_clock_and_turn() {
+    fn arrival_clears_target_and_advances_turn() {
         let (s, gm) = setup();
         let mut s = start_playing(s, gm);
         s.game_day = 1;
