@@ -55,6 +55,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/rooms/{code}/join", post(http::join_room))
         .route("/api/rooms/{code}/ready", post(http::set_ready))
         .route("/api/rooms/{code}/start", post(http::start_game))
+        .route("/api/rooms/{code}/action", post(http::post_action))
         .route("/ws/rooms/{code}", get(ws::ws_handler))
         .with_state(state);
 

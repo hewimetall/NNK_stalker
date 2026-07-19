@@ -1,7 +1,7 @@
 use nnk_domain::{
     CccDraw, DiceKind, HexCoord, LocationId, MemberRole, RoomState, UserId,
 };
-use nnk_rules::Action;
+use nnk_rules::{Action, legal_actions};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -35,7 +35,11 @@ pub struct LobbyView {
     pub max_players: u8,
     pub player_count: u8,
     pub can_start: bool,
+    pub mission_id: u8,
     pub players: Vec<LobbyPlayerView>,
+    pub history: Vec<String>,
+    /// Snake_case action ids for the requesting user (empty if unknown).
+    pub legal_actions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -44,10 +48,37 @@ pub struct LobbyPlayerView {
     pub display_name: String,
     pub ready: bool,
     pub is_gm: bool,
+    pub location: Option<String>,
+    pub sector: Option<u8>,
+    pub hex: HexCoord,
+    pub move_points: u8,
 }
 
 impl LobbyView {
     pub fn from_state(state: &RoomState) -> Self {
+        Self::from_state_for(state, None, MemberRole::Player)
+    }
+
+    pub fn from_state_for(
+        state: &RoomState,
+        viewer: Option<UserId>,
+        role: MemberRole,
+    ) -> Self {
+        let legal = viewer
+            .map(|uid| {
+                legal_actions(state, uid, role)
+                    .into_iter()
+                    .filter_map(action_wire_id)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let hist_len = state.history.len();
+        let history = state
+            .history
+            .iter()
+            .skip(hist_len.saturating_sub(16))
+            .cloned()
+            .collect();
         Self {
             code: state.code.clone(),
             phase: match state.phase {
@@ -58,6 +89,7 @@ impl LobbyView {
             max_players: state.max_players,
             player_count: state.player_count(),
             can_start: state.can_start(),
+            mission_id: state.mission_id,
             players: state
                 .tokens
                 .iter()
@@ -66,10 +98,30 @@ impl LobbyView {
                     display_name: t.display_name.clone(),
                     ready: t.ready,
                     is_gm: t.user_id == state.gm_user_id,
+                    location: t.location.map(|l| l.name_ru().to_string()),
+                    sector: t.sector,
+                    hex: t.hex,
+                    move_points: t.move_points,
                 })
                 .collect(),
+            history,
+            legal_actions: legal,
         }
     }
+}
+
+fn action_wire_id(action: Action) -> Option<String> {
+    Some(match action {
+        Action::SetReady { ready } => format!("set_ready:{ready}"),
+        Action::StartGame => "start_game".into(),
+        Action::StartMission { mission_id } => format!("start_mission:{mission_id}"),
+        Action::RollD20Location => "roll_d20_location".into(),
+        Action::DrawCcc => "draw_ccc".into(),
+        Action::RollD20Hex => "roll_d20_hex".into(),
+        Action::RollD6Move => "roll_d6_move".into(),
+        Action::MoveToken { to } => format!("move_token:{},{}", to.q, to.r),
+        Action::Chat { .. } => return None,
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -170,6 +222,7 @@ mod tests {
         assert_eq!(view.max_players, 5);
         assert_eq!(view.players.len(), 1);
         assert!(view.players[0].is_gm);
+        assert_eq!(view.mission_id, 1);
     }
 
     #[test]

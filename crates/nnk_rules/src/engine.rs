@@ -188,7 +188,10 @@ pub fn step(
             require_playing(&next)?;
             ensure_player(&next, user_id)?;
             let value = rng.d20();
-            let ev = format!("d20_hex:{value}:{}", user_id.0);
+            let hex = nnk_domain::hex_from_d20(value);
+            let token = next.find_token_mut(user_id).unwrap();
+            token.hex = hex;
+            let ev = format!("d20_hex:{value}:{}:{},{}", user_id.0, hex.q, hex.r);
             next.history.push(ev.clone());
             events.push(ev);
         }

@@ -60,7 +60,7 @@ async fn handle_socket(
 
     let welcome = ServerMsg::Welcome { user_id, role };
     let room = live.state.read().await.clone();
-    let lobby = ServerMsg::Lobby(LobbyView::from_state(&room));
+    let lobby = ServerMsg::Lobby(LobbyView::from_state_for(&room, Some(user_id), role));
     let snapshot = ServerMsg::RoomState(room);
     if sink
         .send(Message::Text(
@@ -80,11 +80,46 @@ async fn handle_socket(
         ))
         .await;
 
+    let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<ServerMsg>();
+    let out_tx_broadcast = out_tx.clone();
+
     let send_task = tokio::spawn(async move {
-        while let Ok(msg) = rx.recv().await {
-            let text = serde_json::to_string(&msg).unwrap();
-            if sink.send(Message::Text(text.into())).await.is_err() {
-                break;
+        loop {
+            tokio::select! {
+                biased;
+                maybe = out_rx.recv() => {
+                    let Some(msg) = maybe else { break };
+                    let text = serde_json::to_string(&msg).unwrap();
+                    if sink.send(Message::Text(text.into())).await.is_err() {
+                        break;
+                    }
+                }
+                recv = rx.recv() => {
+                    let Ok(msg) = recv else { break };
+                    match msg {
+                        // Bare Lobby broadcasts have empty legal_actions — ignore.
+                        ServerMsg::Lobby(_) => {}
+                        ServerMsg::RoomState(ref room) => {
+                            let lobby = ServerMsg::Lobby(LobbyView::from_state_for(
+                                room,
+                                Some(user_id),
+                                role,
+                            ));
+                            for m in [lobby, msg] {
+                                let text = serde_json::to_string(&m).unwrap();
+                                if sink.send(Message::Text(text.into())).await.is_err() {
+                                    return;
+                                }
+                            }
+                        }
+                        other => {
+                            let text = serde_json::to_string(&other).unwrap();
+                            if sink.send(Message::Text(text.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
             }
         }
     });
@@ -92,7 +127,7 @@ async fn handle_socket(
     while let Some(Ok(msg)) = stream.next().await {
         let Message::Text(text) = msg else { continue };
         let Ok(client_msg) = serde_json::from_str::<ClientMsg>(&text) else {
-            let _ = live.tx.send(ServerMsg::Error {
+            let _ = out_tx_broadcast.send(ServerMsg::Error {
                 code: "bad_json".into(),
                 message: "cannot parse ClientMsg".into(),
             });
@@ -106,13 +141,11 @@ async fn handle_socket(
             Ok(out) => {
                 *live.state.write().await = out.state.clone();
                 let _ = rooms.persist_snapshot(&code, &out.state).await;
-                let _ = live
-                    .tx
-                    .send(ServerMsg::Lobby(LobbyView::from_state(&out.state)));
+                // Peers rebuild personalized Lobby from RoomState in send_task.
                 let _ = live.tx.send(ServerMsg::RoomState(out.state));
             }
             Err(e) => {
-                let _ = live.tx.send(ServerMsg::Error {
+                let _ = out_tx_broadcast.send(ServerMsg::Error {
                     code: "reject".into(),
                     message: e.to_string(),
                 });
@@ -120,5 +153,6 @@ async fn handle_socket(
         }
     }
 
+    drop(out_tx_broadcast);
     send_task.abort();
 }

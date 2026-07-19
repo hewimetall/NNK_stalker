@@ -7,7 +7,7 @@ use nnk_app::AppError;
 use nnk_auth::AuthError;
 use nnk_domain::{MemberRole, UserId};
 use nnk_ports::PortError;
-use nnk_protocol::{AuthRequest, LobbyView, ServerMsg};
+use nnk_protocol::{AuthRequest, ClientMsg, LobbyView, ServerMsg};
 use nnk_rules::Action;
 use serde::Deserialize;
 use serde_json::json;
@@ -100,7 +100,7 @@ fn map_app(e: AppError) -> (StatusCode, Json<serde_json::Value>) {
 }
 
 async fn broadcast_lobby(live: &LiveRoom, state: &nnk_domain::RoomState) {
-    let _ = live.tx.send(ServerMsg::Lobby(LobbyView::from_state(state)));
+    // RoomState only — each WS subscriber rebuilds Lobby with its legal_actions.
     let _ = live.tx.send(ServerMsg::RoomState(state.clone()));
 }
 
@@ -165,7 +165,16 @@ pub async fn join_room(
         .map_err(map_app)?;
     *live.state.write().await = new_state.clone();
     broadcast_lobby(&live, &new_state).await;
-    Ok(Json(LobbyView::from_state(&new_state)))
+    let role = state
+        .rooms
+        .member_role(&code, user.user_id)
+        .await
+        .unwrap_or(MemberRole::Player);
+    Ok(Json(LobbyView::from_state_for(
+        &new_state,
+        Some(user.user_id),
+        role,
+    )))
 }
 
 pub async fn get_lobby(
@@ -174,7 +183,7 @@ pub async fn get_lobby(
     Path(code): Path<String>,
 ) -> Result<Json<LobbyView>, (StatusCode, Json<serde_json::Value>)> {
     let code = code.to_uppercase();
-    let _role = state
+    let role = state
         .rooms
         .member_role(&code, user.user_id)
         .await
@@ -184,7 +193,11 @@ pub async fn get_lobby(
         .get(&code)
         .ok_or_else(|| err(StatusCode::NOT_FOUND, "room not in memory"))?;
     let rs = live.state.read().await.clone();
-    Ok(Json(LobbyView::from_state(&rs)))
+    Ok(Json(LobbyView::from_state_for(
+        &rs,
+        Some(user.user_id),
+        role,
+    )))
 }
 
 #[derive(Deserialize)]
@@ -244,5 +257,21 @@ async fn apply_lobby_action(
     *live.state.write().await = out.state.clone();
     let _ = state.rooms.persist_snapshot(&code, &out.state).await;
     broadcast_lobby(&live, &out.state).await;
-    Ok(Json(LobbyView::from_state(&out.state)))
+    Ok(Json(LobbyView::from_state_for(
+        &out.state,
+        Some(user.user_id),
+        role,
+    )))
+}
+
+pub async fn post_action(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(code): Path<String>,
+    Json(msg): Json<ClientMsg>,
+) -> Result<Json<LobbyView>, (StatusCode, Json<serde_json::Value>)> {
+    let action = msg
+        .into_action()
+        .ok_or_else(|| err(StatusCode::BAD_REQUEST, "join is not an action"))?;
+    apply_lobby_action(&state, user, &code, action).await
 }

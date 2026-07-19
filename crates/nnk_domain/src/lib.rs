@@ -6,6 +6,7 @@ mod ids;
 mod lobby;
 mod location;
 mod room;
+mod sector;
 mod token;
 
 pub use error::*;
@@ -14,4 +15,5 @@ pub use ids::*;
 pub use lobby::*;
 pub use location::*;
 pub use room::*;
+pub use sector::*;
 pub use token::*;
