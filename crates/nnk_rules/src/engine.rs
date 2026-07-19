@@ -304,17 +304,21 @@ pub fn step(
             }
             let before_target_distance = from.distance(target);
             let after_target_distance = to.distance(target);
-            if after_target_distance > before_target_distance {
+            // Must strictly approach target — equal-distance side-steps caused bot ping-pong.
+            if after_target_distance >= before_target_distance && to != target {
                 return Err(DomainError::IllegalMove { distance, points });
             }
             let arrived = to == target;
+            let remaining = points.saturating_sub(distance as u8);
             let token = next.find_token_mut(user_id).unwrap();
             token.hex = to;
-            token.move_points = 0;
+            token.move_points = remaining;
             token.travel_stage = if arrived {
                 TurnStage::NeedLocation
-            } else {
+            } else if remaining == 0 {
                 TurnStage::NeedD6
+            } else {
+                TurnStage::NeedMove
             };
             let ev = format!("moved:{}:{from:?}->{to:?}", user_id.0);
             next.history.push(ev.clone());
@@ -474,7 +478,13 @@ pub fn can_move_toward_target(
     move_points: u8,
     target: HexCoord,
 ) -> bool {
-    can_move(from, to, move_points) && to.distance(target) <= from.distance(target)
+    if !can_move(from, to, move_points) {
+        return false;
+    }
+    if to == target {
+        return true;
+    }
+    to.distance(target) < from.distance(target)
 }
 
 fn non_empty_trimmed(value: &str, fallback: &str, max_chars: usize) -> String {
@@ -729,17 +739,92 @@ mod tests {
             .find(|to| can_move_toward_target(from, *to, points, target))
             .unwrap();
         let reaches_target = to == target;
+        let spent = from.distance(to) as u8;
         let out = step(out.state, gm, MemberRole::Player, Action::MoveToken { to }).unwrap();
         assert_eq!(out.state.tokens[0].hex, to);
-        assert_eq!(out.state.tokens[0].move_points, 0);
         if reaches_target {
+            assert_eq!(out.state.tokens[0].move_points, 0);
             assert_eq!(out.state.tokens[0].target_hex, None);
             assert_ne!(out.state.active_user_id, Some(gm));
         } else {
+            assert_eq!(out.state.tokens[0].move_points, points - spent);
             assert_eq!(out.state.tokens[0].target_hex, Some(target));
-            assert_eq!(out.state.tokens[0].travel_stage, TurnStage::NeedD6);
+            if points == spent {
+                assert_eq!(out.state.tokens[0].travel_stage, TurnStage::NeedD6);
+            } else {
+                assert_eq!(out.state.tokens[0].travel_stage, TurnStage::NeedMove);
+            }
             assert_eq!(out.state.active_user_id, Some(gm));
         }
+    }
+
+    #[test]
+    fn cannot_oscillate_between_equal_distance_hexes() {
+        let (s, gm) = setup();
+        let mut s = start_playing(s, gm);
+        let token = s.find_token_mut(gm).unwrap();
+        token.travel_stage = TurnStage::NeedMove;
+        token.hex = HexCoord::new(1, 0);
+        token.target_hex = Some(HexCoord::new(0, 0));
+        token.move_points = 1;
+
+        let err = step(
+            s,
+            gm,
+            MemberRole::Player,
+            Action::MoveToken {
+                to: HexCoord::new(0, 1),
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            err,
+            DomainError::IllegalMove {
+                distance: 1,
+                points: 1
+            }
+        );
+    }
+
+    #[test]
+    fn multi_step_d6_spends_points_until_arrival() {
+        let (s, gm) = setup();
+        let mut s = start_playing(s, gm);
+        let token = s.find_token_mut(gm).unwrap();
+        token.travel_stage = TurnStage::NeedMove;
+        token.hex = HexCoord::new(0, -2);
+        token.target_hex = Some(HexCoord::new(0, 0));
+        token.move_points = 2;
+
+        let out = step(
+            s,
+            gm,
+            MemberRole::Player,
+            Action::MoveToken {
+                to: HexCoord::new(0, -1),
+            },
+        )
+        .unwrap();
+        assert_eq!(out.state.tokens[0].hex, HexCoord::new(0, -1));
+        assert_eq!(out.state.tokens[0].move_points, 1);
+        assert_eq!(out.state.tokens[0].travel_stage, TurnStage::NeedMove);
+        assert_eq!(out.state.active_user_id, Some(gm));
+
+        let out = step(
+            out.state,
+            gm,
+            MemberRole::Player,
+            Action::MoveToken {
+                to: HexCoord::new(0, 0),
+            },
+        )
+        .unwrap();
+        assert_eq!(out.state.tokens[0].hex, HexCoord::new(0, 0));
+        assert_eq!(out.state.tokens[0].move_points, 0);
+        assert_eq!(out.state.tokens[0].target_hex, None);
+        assert_eq!(out.state.tokens[0].travel_stage, TurnStage::NeedLocation);
+        assert_ne!(out.state.active_user_id, Some(gm));
     }
 
     #[test]
