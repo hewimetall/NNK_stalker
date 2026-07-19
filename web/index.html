@@ -199,7 +199,8 @@
 
   <script>
     const TIMEOUT_MS = 12000;
-    // Keep this exact order in sync with crates/nnk_domain/src/sector.rs::sector_hexes().
+    // Same document order as nnk_domain::sector_hexes(): left-to-right,
+    // top-to-bottom visual row-major for the radius-2 sector flower.
     const SECTOR = [
       [0,-2],[1,-2],[2,-2],[-1,-1],[0,-1],[1,-1],[2,-1],
       [-2,0],[-1,0],[0,0],[1,0],[2,0],[-2,1],[-1,1],[0,1],[1,1],

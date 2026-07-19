@@ -2,6 +2,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::{HexCoord, LocationId, UserId};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnStage {
+    NeedLocation,
+    NeedSector,
+    NeedHex,
+    NeedD6,
+    NeedMove,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlayerToken {
     pub user_id: UserId,
@@ -11,6 +21,8 @@ pub struct PlayerToken {
     pub sector: Option<u8>,
     pub hex: HexCoord,
     pub move_points: u8,
+    #[serde(default)]
+    pub travel_stage: TurnStage,
 }
 
 impl PlayerToken {
@@ -23,7 +35,14 @@ impl PlayerToken {
             sector: None,
             hex: HexCoord::ZERO,
             move_points: 0,
+            travel_stage: TurnStage::NeedLocation,
         }
+    }
+}
+
+impl Default for TurnStage {
+    fn default() -> Self {
+        Self::NeedLocation
     }
 }
 
@@ -37,6 +56,7 @@ mod tests {
         let t = PlayerToken::new(id, "ГГ");
         assert_eq!(t.hex, HexCoord::ZERO);
         assert_eq!(t.move_points, 0);
+        assert_eq!(t.travel_stage, TurnStage::NeedLocation);
         assert!(t.location.is_none());
     }
 }

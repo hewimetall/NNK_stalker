@@ -4,6 +4,13 @@ use thiserror::Error;
 pub enum DomainError {
     #[error("illegal move: distance {distance} exceeds move points {points}")]
     IllegalMove { distance: u32, points: u8 },
+    #[error("illegal stage action: expected {expected}, got {got}")]
+    IllegalStage {
+        expected: &'static str,
+        got: &'static str,
+    },
+    #[error("not active player")]
+    NotActivePlayer,
     #[error("unknown player")]
     UnknownPlayer,
     #[error("forbidden: {0}")]
@@ -12,6 +19,8 @@ pub enum DomainError {
     InvalidDice(u8),
     #[error("invalid CCC combination")]
     InvalidCcc,
+    #[error("invalid mission id: {0}")]
+    InvalidMissionId(u8),
     #[error("lobby full (max {max} players)")]
     LobbyFull { max: u8 },
     #[error("need {min}..={max} players to start, have {have}")]
