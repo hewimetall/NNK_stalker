@@ -18,13 +18,15 @@ pub fn init(room_id: RoomId, code: String, gm: PlayerToken, seed: u64) -> RoomSt
     state
 }
 
-/// Join lobby; enforces max seats (5). Idempotent if already seated.
+/// Join lobby; enforces max seats (5). Idempotent if already seated
+/// (including reconnect after the game has started).
 pub fn try_add_player(state: RoomState, token: PlayerToken) -> Result<RoomState, DomainError> {
-    if state.phase != RoomPhase::Lobby {
-        return Err(DomainError::AlreadyPlaying);
-    }
+    // Allow seated players to re-enter mid-game without "already started".
     if state.find_token(token.user_id).is_some() {
         return Ok(state);
+    }
+    if state.phase != RoomPhase::Lobby {
+        return Err(DomainError::AlreadyPlaying);
     }
     if state.is_full() {
         return Err(DomainError::LobbyFull {
@@ -506,6 +508,10 @@ mod tests {
             .state;
         let err = try_add_player(s.clone(), PlayerToken::new(UserId::new(), "late")).unwrap_err();
         assert_eq!(err, DomainError::AlreadyPlaying);
+        // Existing member can reconnect after start.
+        let back = try_add_player(s.clone(), PlayerToken::new(gm, "GM")).unwrap();
+        assert_eq!(back.phase, RoomPhase::Playing);
+        assert!(back.find_token(gm).is_some());
         let err = step(
             s.clone(),
             gm,
