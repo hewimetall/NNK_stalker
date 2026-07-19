@@ -52,6 +52,12 @@ pub enum UiAction {
     Unready,
     Start,
     RefreshLobby,
+    /// Play: D20 location → CCC → D20 hex → D6 → move.
+    RollD20Location,
+    DrawCcc,
+    RollD20Hex,
+    RollD6Move,
+    MoveToken { q: i32, r: i32 },
 }
 
 #[derive(Component, Debug, Clone, Copy)]
@@ -448,6 +454,38 @@ fn handle_button_actions(
             UiAction::Unready => start_ready(false, &mut session, &net_tx),
             UiAction::Start => start_game(&mut session, &net_tx),
             UiAction::RefreshLobby => start_refresh(&mut session, &net_tx),
+            UiAction::RollD20Location => start_play_action(
+                nnk_protocol::ClientMsg::RollD20Location,
+                "бросок D20: локация...",
+                &mut session,
+                &net_tx,
+            ),
+            UiAction::DrawCcc => start_play_action(
+                nnk_protocol::ClientMsg::DrawCcc,
+                "вытягиваем ККК...",
+                &mut session,
+                &net_tx,
+            ),
+            UiAction::RollD20Hex => start_play_action(
+                nnk_protocol::ClientMsg::RollD20Hex,
+                "бросок D20: гекс...",
+                &mut session,
+                &net_tx,
+            ),
+            UiAction::RollD6Move => start_play_action(
+                nnk_protocol::ClientMsg::RollD6Move,
+                "бросок D6: ОД...",
+                &mut session,
+                &net_tx,
+            ),
+            UiAction::MoveToken { q, r } => start_play_action(
+                nnk_protocol::ClientMsg::MoveToken {
+                    to: nnk_domain::HexCoord { q, r },
+                },
+                "ход токена...",
+                &mut session,
+                &net_tx,
+            ),
         }
     }
 }
@@ -601,6 +639,26 @@ fn start_refresh(session: &mut ClientSession, net_tx: &NetTx) {
     };
     session.begin_request("обновление...");
     net::spawn_refresh_lobby(code, token, net_tx.0.clone());
+}
+
+fn start_play_action(
+    msg: nnk_protocol::ClientMsg,
+    status: &str,
+    session: &mut ClientSession,
+    net_tx: &NetTx,
+) {
+    if session.is_busy() {
+        return;
+    }
+    let Some(token) = authed_token(session) else {
+        return;
+    };
+    let Some(code) = current_code(session) else {
+        session.set_error("нет активной комнаты");
+        return;
+    };
+    session.begin_request(status);
+    net::spawn_action(code, token, msg, net_tx.0.clone());
 }
 
 fn authed_token(session: &mut ClientSession) -> Option<String> {

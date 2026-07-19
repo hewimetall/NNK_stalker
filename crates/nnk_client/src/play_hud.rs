@@ -116,6 +116,7 @@ fn spawn_tablet(
                 assets,
             ));
             spawn_field_grid(panel, me, lobby, assets);
+            spawn_action_panel(panel, session, lobby, me, assets);
             panel.spawn(text_node(
                 format!(
                     "Брифинг: {}",
@@ -131,6 +132,191 @@ fn spawn_tablet(
                 spawn_text(panel, &session.status, 14.0, palette::muted(), assets);
             }
         });
+}
+
+fn spawn_action_panel(
+    parent: &mut ChildBuilder,
+    session: &ClientSession,
+    lobby: &LobbyView,
+    me: Option<&LobbyPlayerView>,
+    assets: &UiAssets,
+) {
+    let my_turn = is_my_turn(session, lobby);
+    let stage = me.map(|p| p.travel_stage.as_str()).unwrap_or("");
+    parent.spawn(text_node(
+        coach_tip(lobby, me, my_turn),
+        16.0,
+        palette::accent(),
+        assets,
+    ));
+
+    parent
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            flex_direction: FlexDirection::Row,
+            flex_wrap: FlexWrap::Wrap,
+            column_gap: Val::Px(8.0),
+            row_gap: Val::Px(8.0),
+            align_items: AlignItems::Center,
+            ..default()
+        })
+        .with_children(|row| {
+            if !my_turn {
+                spawn_text(
+                    row,
+                    format!("Сейчас ходит {} — жди свой ход.", active_name(lobby)),
+                    15.0,
+                    palette::muted(),
+                    assets,
+                );
+                return;
+            }
+
+            let acts = &lobby.legal_actions;
+            let next = next_dice_action(stage, acts);
+            if let Some((label, action)) = next {
+                spawn_button(row, label, action, !session.is_busy(), true, assets);
+                return;
+            }
+
+            let moves = parse_move_actions(acts);
+            if !moves.is_empty() {
+                spawn_text(
+                    row,
+                    "Ход: выбери соседний гекс к цели",
+                    15.0,
+                    palette::muted(),
+                    assets,
+                );
+                for (q, r) in moves.into_iter().take(8) {
+                    spawn_button(
+                        row,
+                        format!("→ ({q}, {r})"),
+                        UiAction::MoveToken { q, r },
+                        !session.is_busy(),
+                        true,
+                        assets,
+                    );
+                }
+                return;
+            }
+
+            spawn_text(
+                row,
+                "Нет доступных действий. Нажми «Обновить».",
+                15.0,
+                palette::muted(),
+                assets,
+            );
+        });
+}
+
+fn is_my_turn(session: &ClientSession, lobby: &LobbyView) -> bool {
+    let Some(user_id) = session.user_id.as_deref() else {
+        return false;
+    };
+    lobby
+        .active_user_id
+        .map(|id| same_user_id(&id.to_string(), user_id))
+        .unwrap_or(false)
+}
+
+fn next_dice_action(stage: &str, acts: &[String]) -> Option<(&'static str, UiAction)> {
+    let candidates: &[(&str, &str, UiAction)] = &[
+        (
+            "need_location",
+            "1 · Бросить D20: локация",
+            UiAction::RollD20Location,
+        ),
+        ("need_sector", "2 · Вытянуть ККК: сектор", UiAction::DrawCcc),
+        ("need_hex", "3 · Бросить D20: гекс", UiAction::RollD20Hex),
+        ("need_d6", "4 · Бросить D6: ОД", UiAction::RollD6Move),
+    ];
+    for (want_stage, label, action) in candidates {
+        let wire = match action {
+            UiAction::RollD20Location => "roll_d20_location",
+            UiAction::DrawCcc => "draw_ccc",
+            UiAction::RollD20Hex => "roll_d20_hex",
+            UiAction::RollD6Move => "roll_d6_move",
+            _ => continue,
+        };
+        if stage == *want_stage && acts.iter().any(|a| a == wire) {
+            return Some((*label, *action));
+        }
+    }
+    // Fallback: any dice action present even if stage string mismatches.
+    const ORDER: &[(&str, &str, UiAction)] = &[
+        (
+            "roll_d20_location",
+            "1 · Бросить D20: локация",
+            UiAction::RollD20Location,
+        ),
+        ("draw_ccc", "2 · Вытянуть ККК: сектор", UiAction::DrawCcc),
+        (
+            "roll_d20_hex",
+            "3 · Бросить D20: гекс",
+            UiAction::RollD20Hex,
+        ),
+        ("roll_d6_move", "4 · Бросить D6: ОД", UiAction::RollD6Move),
+    ];
+    for (wire, label, action) in ORDER {
+        if acts.iter().any(|a| a == *wire) {
+            return Some((*label, *action));
+        }
+    }
+    None
+}
+
+fn parse_move_actions(acts: &[String]) -> Vec<(i32, i32)> {
+    acts.iter()
+        .filter_map(|raw| {
+            let rest = raw.strip_prefix("move_token:")?;
+            let (q, r) = rest.split_once(',')?;
+            Some((q.parse().ok()?, r.parse().ok()?))
+        })
+        .collect()
+}
+
+fn coach_tip(lobby: &LobbyView, me: Option<&LobbyPlayerView>, my_turn: bool) -> String {
+    if !my_turn {
+        return format!(
+            "Ожидание хода: {}. На второй панели — отряд и журнал, там ничего не «висит».",
+            active_name(lobby)
+        );
+    }
+    let Some(me) = me else {
+        return "Твой ход, но планшет не найден — нажми «Обновить».".into();
+    };
+    match me.travel_stage.as_str() {
+        "need_location" => {
+            "Шаг 1/5 · Нужна локация. Жми большую кнопку «1 · D20 локация» — иначе партия стоит."
+                .into()
+        }
+        "need_sector" => format!(
+            "Шаг 2/5 · Локация: {}. Жми «2 · ККК сектор».",
+            me.location.as_deref().unwrap_or("-")
+        ),
+        "need_hex" => format!(
+            "Шаг 3/5 · Сектор {}. Жми «3 · D20 гекс» — это цель внутри сектора.",
+            me.sector
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "-".into())
+        ),
+        "need_d6" => format!(
+            "Шаг 4/5 · Цель {}. Жми «4 · D6» — получишь ОД к цели.",
+            me.target_hex
+                .map(|h| coord_label(&h))
+                .unwrap_or_else(|| "-".into())
+        ),
+        "need_move" => format!(
+            "Шаг 5/5 · Иди к цели {}. ОД {}. Выбери соседний гекс кнопкой ниже (карты hexx ещё нет).",
+            me.target_hex
+                .map(|h| coord_label(&h))
+                .unwrap_or_else(|| "-".into()),
+            me.move_points
+        ),
+        other => format!("Стадия: {other}. Смотри доступные действия ниже."),
+    }
 }
 
 fn spawn_field_grid(

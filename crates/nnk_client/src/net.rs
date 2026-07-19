@@ -61,7 +61,7 @@ mod imp {
     use futures_util::StreamExt;
     use gloo_net::http::Request;
     use gloo_net::websocket::{futures::WebSocket, Message};
-    use nnk_protocol::{AuthRequest, AuthResponse, CreateRoomResponse, ServerMsg};
+    use nnk_protocol::{AuthRequest, AuthResponse, ClientMsg, CreateRoomResponse, ServerMsg};
     use serde::{Deserialize, Serialize};
     use serde_json::Value;
     use wasm_bindgen_futures::spawn_local;
@@ -210,6 +210,14 @@ mod imp {
         spawn_local(async move {
             let path = format!("/api/rooms/{}", code.trim().to_uppercase());
             let result = get_json::<LobbyView>(&path, &token).await;
+            send_lobby_result(result, false, tx);
+        });
+    }
+
+    pub fn spawn_action(code: String, token: String, msg: ClientMsg, tx: Sender<NetEvent>) {
+        spawn_local(async move {
+            let path = format!("/api/rooms/{}/action", code.trim().to_uppercase());
+            let result = post_json::<ClientMsg, LobbyView>(&path, Some(&token), &msg).await;
             send_lobby_result(result, false, tx);
         });
     }
@@ -438,6 +446,17 @@ mod imp {
     }
 
     pub fn spawn_refresh_lobby(_code: String, _token: String, tx: Sender<NetEvent>) {
+        let _ = tx.send(NetEvent::Error {
+            message: "WASM-only client".into(),
+        });
+    }
+
+    pub fn spawn_action(
+        _code: String,
+        _token: String,
+        _msg: nnk_protocol::ClientMsg,
+        tx: Sender<NetEvent>,
+    ) {
         let _ = tx.send(NetEvent::Error {
             message: "WASM-only client".into(),
         });
