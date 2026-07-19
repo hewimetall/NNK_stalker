@@ -57,59 +57,89 @@ pub enum UiAction {
 #[derive(Component, Debug, Clone, Copy)]
 pub struct UiEnabled(pub bool);
 
+/// Primary CTA (gold fill). Must stay high-contrast — never dark text on dark fill.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct UiPrimary(pub bool);
+
 pub mod palette {
     use bevy::prelude::*;
 
     pub fn bg() -> Color {
-        Color::srgba(0.05, 0.07, 0.04, 0.88)
+        Color::srgba(0.07, 0.09, 0.06, 1.0)
     }
 
     pub fn panel() -> Color {
-        Color::srgba(0.08, 0.10, 0.06, 0.90)
+        Color::srgba(0.12, 0.14, 0.10, 0.96)
     }
 
     pub fn input() -> Color {
-        Color::srgba(0.04, 0.05, 0.035, 0.96)
+        Color::srgba(0.06, 0.08, 0.05, 1.0)
     }
 
     pub fn input_focused() -> Color {
-        Color::srgba(0.14, 0.12, 0.07, 0.96)
+        Color::srgba(0.16, 0.14, 0.08, 1.0)
     }
 
     pub fn button() -> Color {
-        Color::srgba(0.16, 0.14, 0.09, 0.96)
+        // Secondary: dark olive with clear edge — text must stay light.
+        Color::srgba(0.18, 0.20, 0.14, 1.0)
     }
 
     pub fn button_hover() -> Color {
-        Color::srgba(0.24, 0.20, 0.11, 0.98)
+        Color::srgba(0.28, 0.30, 0.20, 1.0)
     }
 
     pub fn button_pressed() -> Color {
-        Color::srgba(0.44, 0.34, 0.13, 1.0)
+        Color::srgba(0.36, 0.32, 0.18, 1.0)
     }
 
     pub fn button_disabled() -> Color {
-        Color::srgba(0.08, 0.08, 0.07, 0.72)
+        Color::srgba(0.12, 0.13, 0.10, 1.0)
+    }
+
+    pub fn primary() -> Color {
+        Color::srgb(0.82, 0.68, 0.34)
+    }
+
+    pub fn primary_hover() -> Color {
+        Color::srgb(0.90, 0.76, 0.42)
+    }
+
+    pub fn primary_pressed() -> Color {
+        Color::srgb(0.70, 0.56, 0.24)
+    }
+
+    pub fn primary_disabled() -> Color {
+        Color::srgba(0.42, 0.36, 0.20, 1.0)
     }
 
     pub fn accent() -> Color {
-        Color::srgb(0.77, 0.64, 0.35)
+        Color::srgb(0.86, 0.72, 0.38)
     }
 
     pub fn text() -> Color {
-        Color::srgb(0.91, 0.88, 0.78)
+        Color::srgb(0.96, 0.93, 0.84)
+    }
+
+    pub fn text_on_primary() -> Color {
+        Color::srgb(0.12, 0.10, 0.05)
     }
 
     pub fn muted() -> Color {
-        Color::srgb(0.62, 0.58, 0.48)
+        // Readable gray-gold — not near-black on dark panels.
+        Color::srgb(0.78, 0.74, 0.62)
+    }
+
+    pub fn disabled_text() -> Color {
+        Color::srgb(0.70, 0.66, 0.54)
     }
 
     pub fn ok() -> Color {
-        Color::srgb(0.48, 0.66, 0.34)
+        Color::srgb(0.55, 0.78, 0.40)
     }
 
     pub fn danger() -> Color {
-        Color::srgb(0.78, 0.36, 0.28)
+        Color::srgb(0.90, 0.48, 0.38)
     }
 }
 
@@ -148,31 +178,14 @@ pub fn spawn_button(
     primary: bool,
     assets: &UiAssets,
 ) {
-    let bg = if enabled {
-        if primary {
-            palette::accent()
-        } else {
-            palette::button()
-        }
-    } else {
-        palette::button_disabled()
-    };
-    let text_color = if enabled {
-        if primary {
-            Color::srgb(0.09, 0.07, 0.04)
-        } else {
-            palette::text()
-        }
-    } else {
-        palette::muted()
-    };
+    let (bg, text_color, border) = button_colors(primary, enabled, Interaction::None);
     parent
         .spawn((
             Button,
             Node {
-                min_width: Val::Px(132.0),
-                height: Val::Px(42.0),
-                padding: UiRect::axes(Val::Px(14.0), Val::Px(8.0)),
+                min_width: Val::Px(148.0),
+                height: Val::Px(44.0),
+                padding: UiRect::axes(Val::Px(16.0), Val::Px(10.0)),
                 margin: UiRect::right(Val::Px(8.0)),
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
@@ -180,17 +193,50 @@ pub fn spawn_button(
                 ..default()
             },
             BackgroundColor(bg),
-            BorderColor(if primary {
-                palette::accent()
-            } else {
-                Color::srgba(0.91, 0.88, 0.78, 0.18)
-            }),
+            BorderColor(border),
             action,
             UiEnabled(enabled),
+            UiPrimary(primary),
         ))
         .with_children(|button| {
             button.spawn(text_node(label, 16.0, text_color, assets));
         });
+}
+
+fn button_colors(primary: bool, enabled: bool, interaction: Interaction) -> (Color, Color, Color) {
+    if !enabled {
+        if primary {
+            (
+                palette::primary_disabled(),
+                palette::text_on_primary(),
+                palette::accent(),
+            )
+        } else {
+            (
+                palette::button_disabled(),
+                palette::disabled_text(),
+                Color::srgba(0.91, 0.88, 0.78, 0.28),
+            )
+        }
+    } else if primary {
+        let bg = match interaction {
+            Interaction::Pressed => palette::primary_pressed(),
+            Interaction::Hovered => palette::primary_hover(),
+            Interaction::None => palette::primary(),
+        };
+        (bg, palette::text_on_primary(), palette::accent())
+    } else {
+        let bg = match interaction {
+            Interaction::Pressed => palette::button_pressed(),
+            Interaction::Hovered => palette::button_hover(),
+            Interaction::None => palette::button(),
+        };
+        (
+            bg,
+            palette::text(),
+            Color::srgba(0.91, 0.88, 0.78, 0.35),
+        )
+    }
 }
 
 pub fn spawn_input(
@@ -437,20 +483,28 @@ fn handle_keyboard_input(
 
 fn update_button_visuals(
     mut query: Query<
-        (&Interaction, &UiEnabled, &mut BackgroundColor),
+        (
+            &Interaction,
+            &UiEnabled,
+            &UiPrimary,
+            &mut BackgroundColor,
+            &mut BorderColor,
+            &Children,
+        ),
         (Changed<Interaction>, With<Button>),
     >,
+    mut texts: Query<&mut TextColor>,
 ) {
-    for (interaction, enabled, mut color) in query.iter_mut() {
-        if !enabled.0 {
-            color.0 = palette::button_disabled();
-            continue;
+    for (interaction, enabled, primary, mut bg, mut border, children) in query.iter_mut() {
+        let (next_bg, next_text, next_border) =
+            button_colors(primary.0, enabled.0, *interaction);
+        bg.0 = next_bg;
+        border.0 = next_border;
+        for child in children.iter() {
+            if let Ok(mut text_color) = texts.get_mut(*child) {
+                text_color.0 = next_text;
+            }
         }
-        color.0 = match *interaction {
-            Interaction::Pressed => palette::button_pressed(),
-            Interaction::Hovered => palette::button_hover(),
-            Interaction::None => palette::button(),
-        };
     }
 }
 
