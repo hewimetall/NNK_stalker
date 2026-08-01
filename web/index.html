@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>NNK Stalker</title>
+  <link data-trunk rel="copy-dir" href="../assets" />
+  <link data-trunk rel="rust" href="../crates/nnk_client/Cargo.toml" data-bin="nnk_client_app" />
+  <style>
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #0b0f08;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      touch-action: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="nnk-canvas"></canvas>
+</body>
+</html>

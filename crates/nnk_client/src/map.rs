@@ -1,0 +1,15 @@
+//! Camera bootstrap. Sector hex board is rendered in `play_hud` (interactive UI).
+
+use bevy::prelude::*;
+
+pub struct MapPlugin;
+
+impl Plugin for MapPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Startup, setup_camera);
+    }
+}
+
+fn setup_camera(mut commands: Commands) {
+    commands.spawn(Camera2d);
+}

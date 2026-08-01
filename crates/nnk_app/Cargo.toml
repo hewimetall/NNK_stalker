@@ -1,0 +1,21 @@
+[package]
+name = "nnk_app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Application use-cases (orchestration, no Axum)"
+
+[dependencies]
+nnk_domain = { workspace = true }
+nnk_rules = { workspace = true }
+nnk_protocol = { workspace = true }
+nnk_auth = { workspace = true }
+nnk_ports = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+nnk_persistence = { workspace = true }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

@@ -1,0 +1,20 @@
+[package]
+name = "nnk_persistence"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "SQLite adapters for ports"
+
+[dependencies]
+nnk_domain = { workspace = true }
+nnk_ports = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+uuid = { workspace = true }

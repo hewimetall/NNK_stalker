@@ -1,0 +1,11 @@
+[package]
+name = "nnk_domain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "NNK domain entities and value objects (no IO)"
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
